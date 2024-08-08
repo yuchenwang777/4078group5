@@ -92,7 +92,8 @@ class EKF:
 
         # TODO: add your codes here to complete the prediction step
         Q = self.predict_covariance(raw_drive_meas)
-        self.P = F @ self.P @ A.T + Q
+
+        self.P = F @ self.P @ F.T + Q
 
     # the update step of EKF
     def update(self, measurements):
@@ -117,6 +118,12 @@ class EKF:
         x = self.get_state_vector()
 
         # TODO: add your codes here to compute the updated x
+        K = self.P@ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
+        ux = x + K@(z - z_hat)
+        self.P = (np.eye(len(K))-K@H)@self.P
+
+        self.set_state_vector(ux)
+
 
 
     def state_transition(self, raw_drive_meas):

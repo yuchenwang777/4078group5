@@ -87,16 +87,6 @@ class Robot:
             DFx[0,2]= R* (-np.cos(th)+np.cos(next_th))
             DFx[1,2]=R* (-np.sin(th)+np.sin(next_th))
 
-        if ang_vel ==0: 
-            DFx[0,2]=-np.sin(th)*lin_vel*dt
-            DFx[1,2]=np.cos(th)*lin_vel*dt
-        else: 
-            R= lin_vel/ang_vel
-            next_th = th + ang_vel*dt
-           
-            DFx[0,2]= R* (-np.cos(th)+np.cos(next_th))
-            DFx[1,2]=R* (-np.sin(th)+np.sin(next_th))
-
         return DFx
 
     def derivative_measure(self, markers, idx_list):
