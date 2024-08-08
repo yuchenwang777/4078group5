@@ -156,6 +156,7 @@ class Robot:
             Jac2[1,1] = (lin_vel/ang_vel**2)*(-np.cos(th)+np.cos(th2))+((lin_vel/ang_vel)*np.sin(th2)*dt)
 
             Jac2[2,1] = dt
+            # changes made 
             
         # Derivative of x,y,theta w.r.t. left_speed, right_speed
         Jac = Jac2 @ Jac1
