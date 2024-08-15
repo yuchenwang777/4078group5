@@ -211,8 +211,9 @@ class Operate:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_RIGHT:
                 self.command['motion'] = [0, -1] # TODO: replace with your M1 code to make the robot turn right
             ####################################################
-            # stop
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            # If the key is released, stop the robot
+            elif event.type == pygame.KEYUP:
+              if event.key in [pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT]:
                 self.command['motion'] = [0, 0]
             # save image
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
