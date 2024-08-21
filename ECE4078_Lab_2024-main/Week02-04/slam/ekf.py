@@ -87,13 +87,17 @@ class EKF:
     # the prediction step of EKF
     def predict(self, raw_drive_meas):
 
+        if np.all(raw_drive_meas==0): 
+            return
+
         F = self.state_transition(raw_drive_meas) # F = A in our workshop slides 
         x = self.get_state_vector()
 
         # TODO: add your codes here to complete the prediction step
+        self.robot.drive(raw_drive_meas)
         Q = self.predict_covariance(raw_drive_meas)
-
         self.P = F @ self.P @ F.T + Q
+
 
     # the update step of EKF
     def update(self, measurements):
@@ -120,6 +124,9 @@ class EKF:
         # TODO: add your codes here to compute the updated x
         K = self.P@ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
         ux = x + K@(z - z_hat)
+
+        # LOCATION OF ITEM CHANGE 1: 
+        #self.P = (np.eye(x.shape[0])-K@H)@self.P
         self.P = (np.eye(len(K))-K@H)@self.P
 
         self.set_state_vector(ux)
@@ -135,7 +142,12 @@ class EKF:
     def predict_covariance(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
         Q = np.zeros((n,n))
-        Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+       
+       ##LOCATION OF ITEM CHANGE 2: 
+       # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+        if not np.all(raw_drive_meas ==0 ):
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.001*np.eye(3)
+        #have a go changing introduced noise/ tuning parameter 
         return Q
 
     def add_landmarks(self, measurements):
