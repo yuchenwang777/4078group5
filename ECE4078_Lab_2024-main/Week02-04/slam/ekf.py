@@ -99,7 +99,6 @@ class EKF:
         self.P = F @ self.P @ F.T + Q
 
 
-
     # the update step of EKF
     def update(self, measurements):
         if not measurements:
@@ -147,7 +146,7 @@ class EKF:
        ##LOCATION OF ITEM CHANGE 2: 
        # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
         if not np.all(raw_drive_meas ==0 ):
-            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) + 0.005*np.eye(3)
         #have a go changing introduced noise/ tuning parameter 
         return Q
 
@@ -298,5 +297,4 @@ class EKF:
         else:
             angle = 0
         return (axes_len[0], axes_len[1]), angle
-
  
