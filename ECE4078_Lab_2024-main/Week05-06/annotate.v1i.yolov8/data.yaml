@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 4
+names: ['lemon', 'lime', 'pear', 'potato']
+
+roboflow:
+  workspace: team05
+  project: annotate-oimbu
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/team05/annotate-oimbu/dataset/1
