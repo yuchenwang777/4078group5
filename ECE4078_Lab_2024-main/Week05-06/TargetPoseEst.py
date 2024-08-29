@@ -37,7 +37,7 @@ def estimate_pose(camera_matrix, obj_info, robot_pose):
     # TODO: measure actual sizes of targets [width, depth, height] and update the dictionary of true target dimensions
     target_dimensions_dict = {'pear': [77/1000,71/1000,106/1000], 'lemon': [76/1000,51/1000,50/1000], 
                               'lime': [75/1000,52/1000,51/1000], 'tomato': [68/1000,70/1000,58/1000], 
-                              'capsicum': [75,70,79], 'potato': [96,65,60], 
+                              'capsicum': [75/1000,70/1000,79/1000], 'potato': [96/1000,65/1000,60/1000], 
                               'pumpkin': [85/1000,83/1000,54/1000], 'garlic': [63/1000,61/1000,70/1000]}
     #########
 
