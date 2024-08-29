@@ -85,15 +85,51 @@ def merge_estimations(target_pose_dict):
         target_est: dict, target pose estimations after merging
     """
     target_est = {}
+    distance_threshold = 0.5
 
     ######### Replace with your codes #########
     # TODO: replace it with a solution to merge the multiple occurrences of the same class type (e.g., by a distance threshold)
     target_est = target_pose_dict
     #########
+    for key, pose in target_est.items():
+        target_type = key.split('_')[0]
+
+        if target_type not in target_est:
+            target_est[target_type] = []
+
+        target_est[target_type].append(pose)
+
+    # For each target type, group poses based on distance
+    final_target_est = {}
+    for target_type, poses in target_est.items():
+        clusters = []
+        
+        # Assign poses to clusters based on distance
+        for pose in poses:
+            found_cluster = False
+            for cluster in clusters:
+                cluster_center = {'x': sum([p['x'] for p in cluster]) / len(cluster),
+                                  'y': sum([p['y'] for p in cluster]) / len(cluster)}
+
+                distance = np.sqrt((pose['x'] - cluster_center['x'])**2 + 
+                                   (pose['y'] - cluster_center['y'])**2)
+                
+                if distance < distance_threshold:
+                    cluster.append(pose)
+                    found_cluster = True
+                    break
+
+            if not found_cluster:
+                clusters.append([pose])
+        
+        # Compute the average pose for each cluster
+        for i, cluster in enumerate(clusters):
+            avg_x = sum([p['x'] for p in cluster]) / len(cluster)
+            avg_y = sum([p['y'] for p in cluster]) / len(cluster)
+            final_target_est[f"{target_type}_{i}"] = {'x': avg_x, 'y': avg_y}
+    
+    return final_target_est
    
-    return target_est
-
-
 # main loop
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))     # get current script directory (TargetPoseEst.py)
