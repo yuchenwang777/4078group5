@@ -253,7 +253,8 @@ class Operate:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_RIGHT:
                 self.command['motion'][1] = max(self.command['motion'][1] - 1, -1)
             # stop
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            elif event.type == pygame.KEYUP:
+              if event.key in [pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT]:
                 self.command['motion'] = [0, 0]
             # save image
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
