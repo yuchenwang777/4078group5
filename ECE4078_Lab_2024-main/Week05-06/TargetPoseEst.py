@@ -35,10 +35,10 @@ def estimate_pose(camera_matrix, obj_info, robot_pose):
     # there are 8 possible types of fruits and vegs
     ######### Replace with your codes #########
     # TODO: measure actual sizes of targets [width, depth, height] and update the dictionary of true target dimensions
-    target_dimensions_dict = {'pear': [7.7,7.1,10.6], 'lemon': [7.6,5.1,5.0], 
-                              'lime': [7.5,5.2,5.1], 'tomato': [6.8,7.0,5.8], 
-                              'capsicum': [7.5,7.0,7.9], 'potato': [9.6,6.5,6.0], 
-                              'pumpkin': [8.5,8.3,5.4], 'garlic': [6.3,6.1,7.0]}
+    target_dimensions_dict = {'pear': [77/1000,71/1000,106/1000], 'lemon': [76/1000,51/1000,50/1000], 
+                              'lime': [75/1000,52/1000,51/1000], 'tomato': [68/1000,70/1000,58/1000], 
+                              'capsicum': [75,70,79], 'potato': [96,65,60], 
+                              'pumpkin': [85/1000,83/1000,54/1000], 'garlic': [63/1000,61/1000,70/1000]}
     #########
 
     # estimate target pose using bounding box and robot pose
@@ -89,15 +89,18 @@ def merge_estimations(target_pose_dict):
 
     ######### Replace with your codes #########
     # TODO: replace it with a solution to merge the multiple occurrences of the same class type (e.g., by a distance threshold)
-    target_est = target_pose_dict
+    #target_est = target_pose_dict
     #########
-    for key, pose in target_est.items():
+    for key, pose in target_pose_dict.items():
         target_type = key.split('_')[0]
 
         if target_type not in target_est:
             target_est[target_type] = []
 
         target_est[target_type].append(pose)
+
+    # Debug: Check if poses are being grouped
+    print(f"Grouped Target Poses (before merging): {target_est}")
 
     # For each target type, group poses based on distance
     final_target_est = {}
@@ -121,14 +124,21 @@ def merge_estimations(target_pose_dict):
 
             if not found_cluster:
                 clusters.append([pose])
+
+        # Debug: Check if clusters are being formed
+        print(f"Clusters for {target_type}: {clusters}")
         
         # Compute the average pose for each cluster
         for i, cluster in enumerate(clusters):
             avg_x = sum([p['x'] for p in cluster]) / len(cluster)
             avg_y = sum([p['y'] for p in cluster]) / len(cluster)
             final_target_est[f"{target_type}_{i}"] = {'x': avg_x, 'y': avg_y}
+
+    # Debug: Final merged estimations
+    print(f"Final Merged Target Estimations: {final_target_est}")
     
     return final_target_est
+
    
 # main loop
 if __name__ == "__main__":
