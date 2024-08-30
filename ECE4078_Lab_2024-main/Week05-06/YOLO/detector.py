@@ -85,17 +85,37 @@ class Detector:
 
 # FOR TESTING ONLY
 if __name__ == '__main__':
-    # get current script directory
+    # Get current script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # Initialize the YOLO detector with the model
     yolo = Detector(f'{script_dir}/model/yolov8_model.pt')
 
-    img = cv2.imread(f'{script_dir}/test/test_image_1.png')
+    # Directory containing the images
+    images_dir = f'{script_dir}/test/'
 
-    bboxes, img_out = yolo.detect_single_image(img)
+    # Loop through all files in the images directory
+    for filename in os.listdir(images_dir):
+        # Check if the file is an image (you can add more extensions if needed)
+        if filename.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            # Full path to the image
+            img_path = os.path.join(images_dir, filename)
+            
+            # Read the image
+            img = cv2.imread(img_path)
+            
+            # Perform detection on the image
+            bboxes, img_out = yolo.detect_single_image(img)
+            
+            # Print the bounding boxes and the number of detections
+            print(f'Detections for {filename}:')
+            print(bboxes)
+            print(f'Number of detections: {len(bboxes)}')
+            
+            # Display the image with detections
+            cv2.imshow(f'yolo detect - {filename}', img_out)
+            cv2.waitKey(0)  # Wait for a key press to move to the next image
+            cv2.destroyAllWindows()  # Close the window before the next image
 
-    print(bboxes)
-    print(len(bboxes))
+   
 
-    cv2.imshow('yolo detect', img_out)
-    cv2.waitKey(0)
