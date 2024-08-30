@@ -14,11 +14,11 @@ class Detector:
             'pear': (51, 255, 51),
             'lemon': (0, 255, 255),
             'lime': (0, 102, 0),
-            #'tomato': (0, 0, 255), #need images
-            #'capsicum': (255, 255, 0), #need images
+            'tomato': (0, 0, 255), 
+            'capsicum': (255, 255, 0), 
             'potato': (0, 51, 102),
-            #'pumpkin': (0, 127, 255), #need images
-            #'garlic': (255, 0, 255) #need images
+            'pumpkin': (0, 127, 255), 
+            'garlic': (255, 0, 255) 
         }
 
     def detect_single_image(self, img):
