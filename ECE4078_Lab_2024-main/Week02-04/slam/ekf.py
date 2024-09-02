@@ -4,7 +4,7 @@ import cv2
 import math
 import pygame
 
-class EKF: #change name back to EKF to use this one
+class EKF: 
     # Implementation of an EKF for SLAM
     # The state is ordered as [x; y; theta; l1x; l1y; ...; lnx; lny]
 
@@ -18,7 +18,6 @@ class EKF: #change name back to EKF to use this one
         self.robot = robot
         self.markers = np.zeros((2,0))
         self.taglist = []
-        self.previous_poses = []
 
         # Covariance matrix
         self.P = np.zeros((3,3))
@@ -84,32 +83,6 @@ class EKF: #change name back to EKF to use this one
     # EKF functions
     # Tune your SLAM algorithm here
     # ########################################
-    def detect_loop_closure(self, current_pose, threshold=0.5):
-        for i, pose in enumerate(self.previous_poses):
-            distance = np.linalg.norm(current_pose[:2] - pose[:2])
-            if distance < threshold:
-                print("Loop closure detected")
-                self.correct_map(i, current_pose)
-                break
-        self.previous_poses.append(current_pose)
-
-    def correct_map(self, loop_index, current_pose):
-        previous_pose = self.previous_poses[loop_index]
-        
-        from_points = np.array(previous_pose).reshape(2, 1)
-        to_points = np.array(current_pose).reshape(2, 1)
-        
-        R, t = self.umeyama(from_points, to_points)
-        
-        self.apply_correction(R, t)
-
-    def apply_correction(self, R, t):
-        # Apply the rotation and translation to the map and the robot's trajectory
-        # Adjust the landmarks and the robot's pose accordingly
-        for i in range(len(self.markers)):
-            self.markers[i].position = R @ self.markers[i].position + t
-        
-        self.robot.pose = R @ self.robot.pose + t
 
     # the prediction step of EKF
     def predict(self, raw_drive_meas):
@@ -125,24 +98,22 @@ class EKF: #change name back to EKF to use this one
         Q = self.predict_covariance(raw_drive_meas)
         self.P = F @ self.P @ F.T + Q
 
+
+
     # the update step of EKF
     def update(self, measurements):
         if not measurements:
             return
-        filtered_measuremets = [lm for lm in measurements if lm.tag <= 10]
-
-        if not filtered_measuremets:
-            return
 
         # Construct measurement index list
-        tags = [lm.tag for lm in filtered_measuremets]
+        tags = [lm.tag for lm in measurements]
         idx_list = [self.taglist.index(tag) for tag in tags]
 
         # Stack measurements and set covariance
-        z = np.concatenate([lm.position.reshape(-1,1) for lm in filtered_measuremets], axis=0)
-        R = np.zeros((2*len(filtered_measuremets),2*len(filtered_measuremets)))
-        for i in range(len(filtered_measuremets)):
-            R[2*i:2*i+2,2*i:2*i+2] = filtered_measuremets[i].covariance
+        z = np.concatenate([lm.position.reshape(-1,1) for lm in measurements], axis=0)
+        R = np.zeros((2*len(measurements),2*len(measurements)))
+        for i in range(len(measurements)):
+            R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance
 
         # Compute own measurements
         z_hat = self.robot.measure(self.markers, idx_list)
@@ -161,10 +132,6 @@ class EKF: #change name back to EKF to use this one
 
         self.set_state_vector(ux)
 
-        # Detect loop closure
-        current_pose = self.robot.pose
-        self.detect_loop_closure(current_pose)
-
 
 
     def state_transition(self, raw_drive_meas):
@@ -180,7 +147,7 @@ class EKF: #change name back to EKF to use this one
        ##LOCATION OF ITEM CHANGE 2: 
        # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
         if not np.all(raw_drive_meas ==0 ):
-            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.005*np.eye(3)
         #have a go changing introduced noise/ tuning parameter 
         return Q
 
@@ -209,6 +176,7 @@ class EKF: #change name back to EKF to use this one
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
+            
 
     ##########################################
     ##########################################
@@ -298,15 +266,14 @@ class EKF: #change name back to EKF to use this one
                     (start_point_uv[0]-15, start_point_uv[1]-15))
         if self.number_landmarks() > 0:
             for i in range(len(self.markers[0,:])):
-                if self.taglist[i] > 10:
-                    xy = (lms_xy[0, i], lms_xy[1, i])
-                    coor_ = self.to_im_coor(xy, res, m2pixel)
-                    try:
-                        surface.blit(self.lm_pics[self.taglist[i]-1],
-                        (coor_[0]-5, coor_[1]-5))
-                    except IndexError:
-                        surface.blit(self.lm_pics[-1],
-                        (coor_[0]-5, coor_[1]-5))
+                xy = (lms_xy[0, i], lms_xy[1, i])
+                coor_ = self.to_im_coor(xy, res, m2pixel)
+                try:
+                    surface.blit(self.lm_pics[self.taglist[i]-1],
+                    (coor_[0]-5, coor_[1]-5))
+                except IndexError:
+                    surface.blit(self.lm_pics[-1],
+                    (coor_[0]-5, coor_[1]-5))
         return surface
 
     @staticmethod
@@ -334,4 +301,3 @@ class EKF: #change name back to EKF to use this one
         return (axes_len[0], axes_len[1]), angle
 
  
-#hello
