@@ -148,6 +148,8 @@ class EKF:
        # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
         if not np.all(raw_drive_meas ==0 ):
             Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.005*np.eye(3)
+        else:
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
         #have a go changing introduced noise/ tuning parameter 
         return Q
 
@@ -176,7 +178,7 @@ class EKF:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
-
+         ##### remove in doesn't work
             if len(measurements) > 1:
                 lm_positions = np.array([lm.position for lm in measurements])
                 cube_center_bff = np.mean(lm_positions, axis=0).reshape(-1, 1)
