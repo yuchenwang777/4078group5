@@ -4,7 +4,7 @@ import cv2
 import math
 import pygame
 
-class EKF:
+class EKF1: #just placeholder for old ekf
     # Implementation of an EKF for SLAM
     # The state is ordered as [x; y; theta; l1x; l1y; ...; lnx; lny]
 
@@ -176,6 +176,7 @@ class EKF:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
+            
 
     ##########################################
     ##########################################
@@ -300,4 +301,3 @@ class EKF:
         return (axes_len[0], axes_len[1]), angle
 
  
-#hello
