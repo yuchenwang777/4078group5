@@ -4,7 +4,7 @@ import cv2
 import math
 import pygame
 
-class EKF1: #just placeholder for old ekf
+class EKF: 
     # Implementation of an EKF for SLAM
     # The state is ordered as [x; y; theta; l1x; l1y; ...; lnx; lny]
 
