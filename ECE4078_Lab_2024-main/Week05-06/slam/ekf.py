@@ -147,7 +147,7 @@ class EKF:
        ##LOCATION OF ITEM CHANGE 2: 
        # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
         if not np.all(raw_drive_meas ==0 ):
-            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.005*np.eye(3)
         #have a go changing introduced noise/ tuning parameter 
         return Q
 
@@ -176,6 +176,21 @@ class EKF:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
+
+            if len(measurements) > 1:
+                lm_positions = np.array([lm.position for lm in measurements])
+                cube_center_bff = np.mean(lm_positions, axis=0).reshape(-1, 1)
+                cube_center_inertial = robot_xy + R_theta @ cube_center_bff
+
+            # Add cube center as a new landmark
+                self.taglist.append(-1)  # Use a special tag for the cube center
+                self.markers = np.concatenate((self.markers, cube_center_inertial), axis=1)
+
+            # Create a simple, large covariance to be fixed by the update step
+                self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
+                self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
+                self.P[-2,-2] = self.init_lm_cov**2
+                self.P[-1,-1] = self.init_lm_cov**2
             
 
     ##########################################
