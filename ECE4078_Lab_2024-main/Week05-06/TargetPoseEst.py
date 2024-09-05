@@ -5,6 +5,7 @@ import os
 import ast
 import cv2
 from YOLO.detector import Detector
+from sklearn.cluster import DBSCAN
 
 
 # list of target fruits and vegs types
@@ -91,6 +92,9 @@ def merge_estimations(target_pose_dict):
     # TODO: replace it with a solution to merge the multiple occurrences of the same class type (e.g., by a distance threshold)
     #target_est = target_pose_dict
     #########
+    target_est = {}
+    distance_threshold = 0.5
+
     for key, pose in target_pose_dict.items():
         target_type = key.split('_')[0]
 
@@ -102,43 +106,26 @@ def merge_estimations(target_pose_dict):
     # Debug: Check if poses are being grouped
     print(f"Grouped Target Poses (before merging): {target_est}")
 
-    # For each target type, group poses based on distance
     final_target_est = {}
     for target_type, poses in target_est.items():
-        clusters = []
-        
-        # Assign poses to clusters based on distance
-        for pose in poses:
-            found_cluster = False
-            for cluster in clusters:
-                cluster_center = {'x': sum([p['x'] for p in cluster]) / len(cluster),
-                                  'y': sum([p['y'] for p in cluster]) / len(cluster)}
+        if len(poses) == 1:
+            final_target_est[f"{target_type}_1"] = poses[0]
+            continue
 
-                distance = np.sqrt((pose['x'] - cluster_center['x'])**2 + 
-                                   (pose['y'] - cluster_center['y'])**2)
-                
-                if distance < distance_threshold:
-                    cluster.append(pose)
-                    found_cluster = True
-                    break
+        # Convert list of dicts to numpy array
+        poses_array = np.array([[pose['x'], pose['y']] for pose in poses])
 
-            if not found_cluster:
-                clusters.append([pose])
+        # Use DBSCAN to cluster poses based on distance
+        clustering = DBSCAN(eps=distance_threshold, min_samples=1).fit(poses_array)
+        labels = clustering.labels_
 
-        # Debug: Check if clusters are being formed
-        print(f"Clusters for {target_type}: {clusters}")
-        
-        # Compute the average pose for each cluster
-        for i, cluster in enumerate(clusters):
-            avg_x = sum([p['x'] for p in cluster]) / len(cluster)
-            avg_y = sum([p['y'] for p in cluster]) / len(cluster)
-            final_target_est[f"{target_type}_{i}"] = {'x': avg_x, 'y': avg_y}
+        # Merge poses within each cluster
+        for cluster_id in set(labels):
+            cluster_poses = poses_array[labels == cluster_id]
+            centroid = np.mean(cluster_poses, axis=0)
+            final_target_est[f"{target_type}_{cluster_id}"] = {'x': centroid[0], 'y': centroid[1]}
 
-    # Debug: Final merged estimations
-    print(f"Final Merged Target Estimations: {final_target_est}")
-    
     return final_target_est
-
    
 # main loop
 if __name__ == "__main__":
