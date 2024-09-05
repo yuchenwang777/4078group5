@@ -91,7 +91,7 @@ def merge_estimations(target_pose_dict):
     #target_est = target_pose_dict
     #########
     target_est = {}
-    distance_threshold = 0.5
+    distance_threshold = 0.3
      # Filter out poses outside the valid area
     valid_pose_dict = {key: pose for key, pose in target_pose_dict.items() if -1.5 < pose['x'] < 1.5 and -1.5 < pose['y'] < 1.5}
 
@@ -123,6 +123,9 @@ def merge_estimations(target_pose_dict):
         # Merge poses within each cluster
         for cluster_id in set(labels):
             cluster_poses = poses_array[labels == cluster_id]
+                    # Filter out clusters with less than 5 pose estimations
+            if len(cluster_poses) < 5:
+                continue
             centroid = np.mean(cluster_poses, axis=0)
             final_target_est[f"{target_type}_{cluster_id}"] = {'x': centroid[0], 'y': centroid[1]}
 

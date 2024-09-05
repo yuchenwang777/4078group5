@@ -1,0 +1,8 @@
+conda deactivate
+cd LiveDemo
+cd Week05-06
+cd YOLO
+python detector.py
+cd ..
+python3 operate.py --ip 192.168.50.1 --port 8080
+python TargetPoseEst.py
