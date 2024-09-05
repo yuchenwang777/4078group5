@@ -89,7 +89,7 @@ if __name__ == '__main__':
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Initialize the YOLO detector with the model
-    yolo = Detector(f'{script_dir}/model/best.pt')
+    yolo = Detector(f'{script_dir}/model/yolov8_model.pt')
 
     # Directory containing the images
     images_dir = f'{script_dir}/test/'
