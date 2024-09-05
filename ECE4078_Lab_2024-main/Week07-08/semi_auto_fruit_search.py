@@ -163,7 +163,8 @@ def on_click(event):
     print(f"Clicked coordinates: ({x:.2f}, {y:.2f})")
     
     # Update the robot pose
-    robot_pose = [x, y, 0.0]
+    #this was just for testing GUI need to use control algorithm to update the robot pose
+    robot_pose = [x, y, 0.0] 
     print(f"Updated robot pose: {robot_pose}")
     
     # Redraw the map image to clear previous circles
