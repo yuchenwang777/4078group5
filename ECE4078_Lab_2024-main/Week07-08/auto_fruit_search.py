@@ -7,6 +7,8 @@ import numpy as np
 import json
 import argparse
 import time
+import tkinter as tk
+from PIL import Image, ImageTk
 
 # import SLAM components
 # sys.path.insert(0, "{}/slam".format(os.getcwd()))
@@ -136,6 +138,7 @@ def get_robot_pose():
     ####################################################
 
     return robot_pose
+
 
 # main loop
 if __name__ == "__main__":
