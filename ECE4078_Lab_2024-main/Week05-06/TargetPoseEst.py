@@ -85,8 +85,6 @@ def merge_estimations(target_pose_dict):
     output:
         target_est: dict, target pose estimations after merging
     """
-    target_est = {}
-    distance_threshold = 0.5
 
     ######### Replace with your codes #########
     # TODO: replace it with a solution to merge the multiple occurrences of the same class type (e.g., by a distance threshold)
@@ -94,8 +92,11 @@ def merge_estimations(target_pose_dict):
     #########
     target_est = {}
     distance_threshold = 0.5
+     # Filter out poses outside the valid area
+    valid_pose_dict = {key: pose for key, pose in target_pose_dict.items() if -1.5 < pose['x'] < 1.5 and -1.5 < pose['y'] < 1.5}
 
-    for key, pose in target_pose_dict.items():
+
+    for key, pose in valid_pose_dict.items():
         target_type = key.split('_')[0]
 
         if target_type not in target_est:
