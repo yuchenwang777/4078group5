@@ -9,6 +9,7 @@ import argparse
 import time
 import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
+import math
 
 # import SLAM components
 # sys.path.insert(0, "{}/slam".format(os.getcwd()))
@@ -165,12 +166,13 @@ def on_click(event):
     # Update the robot pose
     #this was just for testing GUI need to use control algorithm to update the robot pose
     # call drive_to_point function here and use x,y as inputs, along with current robot pose
-    robot_pose = [x, y, 0.0] 
-    print(f"Updated robot pose: {robot_pose}")
+    theta = math.atan2( robot_pose[1]-y,  robot_pose[0]-x)
+    robot_pose = [x, y, theta] 
+    print(f"Updated robot pose: [{robot_pose[0]}, {robot_pose[1]}, {(180/math.pi)*robot_pose[2]}]")
     
     # Redraw the map image to clear previous circles
     map_image_copy = map_image.copy()
-    draw_robot(event.x, event.y)
+    draw_robot(event.x, event.y, robot_pose[2])
 
 def draw_target_circles(image, targets):
     draw = ImageDraw.Draw(image)
@@ -185,12 +187,21 @@ def draw_target_circles(image, targets):
         radius = int(0.5 / 3 * img_width)  # Convert 0.5m to pixel radius
         draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline='blue', width=3)  # Increase width for better visibility
 
-def draw_robot(x, y):
+def draw_robot(x,y,orientation):
     global map_image_copy
     # Draw a red circle on the image at the specified coordinates
     draw = ImageDraw.Draw(map_image_copy)
     radius = 5
     draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill='red')
+    orientation = robot_pose[2]
+    # Calculate the end point of the arrow
+    arrow_length = 20  # Length of the arrow
+    end_x = x + arrow_length * math.cos(orientation)
+    end_y = y - arrow_length * math.sin(orientation)  # Invert y-axis for drawing
+
+        # Draw the arrow
+    draw.line((x, y, end_x, end_y), fill='red', width=3)
+
     
     # Update the image in the label
     map_photo.paste(map_image_copy)
@@ -244,7 +255,7 @@ if __name__ == "__main__":
     # Start the GUI event loop
     root.mainloop()
 
-    print(f"Final robot pose: {robot_pose}")
+    print(f"Updated robot pose: [{robot_pose[0]}, {robot_pose[1]}, {(180/math.pi)*robot_pose[2]}]")
 
         # robot drives to the waypoint
        # waypoint = [x,y]
