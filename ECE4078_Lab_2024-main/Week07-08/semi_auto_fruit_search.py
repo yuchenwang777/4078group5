@@ -164,6 +164,7 @@ def on_click(event):
     
     # Update the robot pose
     #this was just for testing GUI need to use control algorithm to update the robot pose
+    # call drive_to_point function here and use x,y as inputs, along with current robot pose
     robot_pose = [x, y, 0.0] 
     print(f"Updated robot pose: {robot_pose}")
     
