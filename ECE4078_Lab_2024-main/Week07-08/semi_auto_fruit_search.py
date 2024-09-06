@@ -10,6 +10,7 @@ import time
 import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
 import math
+import argparse
 
 # import SLAM components
 # sys.path.insert(0, "{}/slam".format(os.getcwd()))
@@ -158,7 +159,8 @@ def on_click(event):
     x = (event.x / img_width) * 3 - 1.5
     y = (event.y / img_height) * 3 - 1.5
     
-    # Invert y-axis to match typical coordinate system
+    # based on the direction of your x/y axis my need to adjust x and y (+/-) to get the correct orientation
+    # Invert x-axis to match typical coordinate system
     x = -x
     
     print(f"Clicked coordinates: ({x:.2f}, {y:.2f})")
@@ -174,32 +176,43 @@ def on_click(event):
     map_image_copy = map_image.copy()
     draw_robot(event.x, event.y, robot_pose[2])
 
+#drawing the 0.5m radius circles around the target fruits, that the robot needs to be within to pick them up
 def draw_target_circles(image, targets):
     draw = ImageDraw.Draw(image)
     img_width, img_height = image.size
+    target_numbers = [1, 2, 3, 4, 5]
+    counter = 0
     
     for target in targets:
         # Convert target coordinates to pixel coordinates
+        # based on the direction of your x/y axis my need to adjust x and y (+/-) to get the correct orientation
         x = int((target[0] + 1.5) / 3 * img_width)
         y = int((1.5 - target[1]) / 3 * img_height)
         
         # Draw a circle with a 0.5m radius around the target
         radius = int(0.5 / 3 * img_width)  # Convert 0.5m to pixel radius
-        draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline='blue', width=3)  # Increase width for better visibility
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline='blue', width=1)  # Increase width for better visibility
+        #numbering the targets on the map so viewer can see the order them must go in
+        #make sure orientation arrow is pointing to the target in order to "collect" it
+        draw.text((x, y), str(target_numbers[counter]), fill='white', anchor='mm')
+        counter += 1
 
+# Draw the robot on the map image to show its current position and orientation
 def draw_robot(x,y,orientation):
     global map_image_copy
     # Draw a red circle on the image at the specified coordinates
     draw = ImageDraw.Draw(map_image_copy)
-    radius = 5
+    radius = 10
     draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill='red')
+
+    # Draw an arrow to represent the robot's orientation
     orientation = robot_pose[2]
     # Calculate the end point of the arrow
     arrow_length = 20  # Length of the arrow
     end_x = x + arrow_length * math.cos(orientation)
     end_y = y - arrow_length * math.sin(orientation)  # Invert y-axis for drawing
 
-        # Draw the arrow
+    # Draw the arrow
     draw.line((x, y, end_x, end_y), fill='red', width=3)
 
     
@@ -213,6 +226,42 @@ def process_waypoints(x, y):
     # estimate the robot's pose
     robot_pose = get_robot_pose()
     print(f"Robot pose: {robot_pose}")
+
+# creates the map image based on the map given in the .txt file
+# helpful for visualizing the robot's position and the target fruits, and placing waypoints
+# allows for quick testing on different maps
+def create_map_image(fruits_true_pos, aruco_true_pos, width=500, height=500):
+    # Create a blank image
+    map_image = Image.new('RGB', (width, height), 'white')
+    draw = ImageDraw.Draw(map_image)
+    aruco_numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9,10]
+    
+    # based on the direction of your x/y axis my need to adjust x and y (+/-) to get the correct orientation
+    # Draw the fruits
+    for pos in fruits_true_pos:
+        x = int((1.5 - pos[0]) / 3 * width)
+        y = int((pos[1] + 1.5) / 3 * height)
+
+        radius = 10  # Radius of the fruit
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill='green')
+    
+    # Draw the ArUco markers
+    for i,pos in enumerate(aruco_true_pos):
+        x = int((1.5 - pos[0]) / 3 * width)
+        y = int((pos[1] + 1.5) / 3 * height)
+        side = 20  # Side length of the square
+        #drawing black blocks for markers
+        draw.rectangle((x - side // 2, y - side // 2, x + side // 2, y + side // 2), fill='black')
+        #numbering the blocks
+        draw.text((x, y), str(aruco_numbers[i]), fill='white', anchor='mm')
+
+    # Draw the robot at the initial position
+    robot_x = int((1.5 - robot_pose[0]) / 3 * width)
+    robot_y = int((robot_pose[1] + 1.5) / 3 * height)
+    radius = 5  # Radius of the robot
+    draw.ellipse((robot_x - radius, robot_y - radius, robot_x + radius, robot_y + radius), fill='red')
+    
+    return map_image
 
 # main loop
 if __name__ == "__main__":
@@ -237,7 +286,9 @@ if __name__ == "__main__":
     root.title("Map Click Waypoints")
 
     # Load the map image
-    map_image = Image.open("M4_prac_map_layout_cropped.png")  # Update with your map image path
+    #map_image = Image.open("M4_prac_map_layout_cropped.png")  # Update with your map image path
+    map_image = create_map_image(fruits_true_pos, aruco_true_pos)
+
     #map_image_copy = map_image.copy()
     draw_target_circles(map_image, targetPose)
     map_photo = ImageTk.PhotoImage(map_image)
