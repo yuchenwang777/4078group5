@@ -9,17 +9,18 @@ import argparse
 import time
 import tkinter as tk
 from PIL import Image, ImageTk
+from calibration.wheel_calibration import calibrateWheelRadius, calibrateBaseline
 
-# import SLAM components
-# sys.path.insert(0, "{}/slam".format(os.getcwd()))
-# from slam.ekf import EKF
-# from slam.robot import Robot
-# import slam.aruco_detector as aruco
+#import SLAM components
+sys.path.insert(0, "{}/slam".format(os.getcwd()))
+from slam.ekf import EKF
+from slam.robot import Robot
+import slam.aruco_detector as aruco
 
 # import utility functions
 sys.path.insert(0, "util")
-from pibot import PenguinPi
-import measure as measure
+from util.pibot import PenguinPi
+import util.measure as measure
 
 
 def read_true_map(fname):
@@ -112,17 +113,29 @@ def drive_to_point(waypoint, robot_pose):
     # One simple strategy is to first turn on the spot facing the waypoint,
     # then drive straight to the way point
 
+    angle = np.arctan((waypoint[1]-robot_pose[1])/(waypoint[0]-robot_pose[0])) #finding the angle from the robot to the way point.
+    angle = robot_pose[-1] - angle #taking the pose of the robot into account to find the angle to turn
+
+
     wheel_vel = 30 # tick
     
     # turn towards the waypoint
-    turn_time = 0.0 # replace with your calculation
+    turn_time = np.sqrt((baseline*angle)/(wheel_vel)**2) # replace with your calculation
+
     print("Turning for {:.2f} seconds".format(turn_time))
     ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
     
     # after turning, drive straight to the waypoint
-    drive_time = 0.0 # replace with your calculation
+
+    d = ( np.sqrt(waypoint[1]**2-robot_pose[1]**2)+np.sqrt(waypoint[0]**2-robot_pose[0])**2) #calculating the distance to the point
+
+    drive_time = d*scale # replace with your calculation
+
     print("Driving for {:.2f} seconds".format(drive_time))
     ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    
+
+    #END TODO 
     ####################################################
 
     print("Arrived at [{}, {}]".format(waypoint[0], waypoint[1]))
@@ -133,8 +146,16 @@ def get_robot_pose():
     # TODO: replace with your codes to estimate the pose of the robot
     # We STRONGLY RECOMMEND you to use your SLAM code from M2 here
 
+    img_poses = {}
+    with open(f'{script_dir}/lab_output/images.txt') as fp:
+        for line in fp.readlines(): 
+            pose_dict = ast.literal_eval(line)
+            img_poses[pose_dict['imgfname']] = pose_dict['pose']
+
+    x,y,theta = img_poses[img_poses.keys()[-1]]
+
     # update the robot pose [x,y,theta]
-    robot_pose = [0.0,0.0,0.0] # replace with your calculation
+    robot_pose = [x,y,theta] # replace with your calculation
     ####################################################
 
     return robot_pose
