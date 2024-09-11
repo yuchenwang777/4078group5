@@ -14,10 +14,10 @@ import argparse
 from obstacles import *
 
 # import SLAM components
-# sys.path.insert(0, "{}/slam".format(os.getcwd()))
-# from slam.ekf import EKF
-# from slam.robot import Robot
-# import slam.aruco_detector as aruco
+sys.path.insert(0, "{}/slam".format(os.getcwd()))
+from slam.ekf import EKF
+from slam.robot import Robot
+import slam.aruco_detector as aruco
 
 # import utility functions
 sys.path.insert(0, "util")
@@ -90,42 +90,6 @@ class RRT:
             path.append((node.x, node.y))
             node = node.parent
         return path[::-1]
-
-#def main():
-#    start = (0, 0)
-#    goal = (1.5, 1.5)
-#    map_size = 3.0
-#    obstacles = [
-#        Rectangle(np.array([0.5, 0.5]), 0.2, 0.2),
-#        Circle(1.0, 1.0, 0.2)
-#    ]
-
- #   rrt = RRT(start, goal, obstacles, map_size)
- #   path = rrt.build_rrt()
-
-  #  if path:
-   #     print("Path found!")
-    #    for point in path:
-     #       print(point)
-    #else:
-     #   print("No path found.")
-
-    # Visualization
-   # fig, ax = plt.subplots()
-   # ax.set_xlim(-map_size/2, map_size/2)
-   # ax.set_ylim(-map_size/2, map_size/2)
-
-   # for obstacle in obstacles:
-   #     if isinstance(obstacle, Rectangle):
-   #         rect = plt.Rectangle(obstacle.origin, obstacle.width, obstacle.height, color='gray')
-   #         ax.add_patch(rect)
-   #     elif isinstance(obstacle, Circle):
-   #         circle = plt.Circle(obstacle.center, obstacle.radius, color='gray')
-   #         ax.add_patch(circle)
-
-    #if path:
-    #    path = np.array(path)
-    #    ax.plot(path[:, 0], path[:, 1], '-o')
 
     #plt.show()
 def generate_circular_obstacles(coordinates , robot_diameter=0.155, obstacle_diameter=0.1):
@@ -240,17 +204,29 @@ def drive_to_point(waypoint, robot_pose):
     # One simple strategy is to first turn on the spot facing the waypoint,
     # then drive straight to the way point
 
+    angle = np.arctan((waypoint[1]-robot_pose[1])/(waypoint[0]-robot_pose[0])) #finding the angle from the robot to the way point.
+    angle = robot_pose[-1] - angle #taking the pose of the robot into account to find the angle to turn
+
+
     wheel_vel = 30 # tick
     
     # turn towards the waypoint
-    turn_time = 0.0 # replace with your calculation
+    turn_time = np.sqrt((baseline*angle)/(wheel_vel)**2) # replace with your calculation
+
     print("Turning for {:.2f} seconds".format(turn_time))
     ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
     
     # after turning, drive straight to the waypoint
-    drive_time = 0.0 # replace with your calculation
+
+    d = ( np.sqrt(waypoint[1]**2-robot_pose[1]**2)+np.sqrt(waypoint[0]**2-robot_pose[0])**2) #calculating the distance to the point
+
+    drive_time = d*scale # replace with your calculation
+
     print("Driving for {:.2f} seconds".format(drive_time))
     ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    
+
+    #END TODO 
     ####################################################
 
     print("Arrived at [{}, {}]".format(waypoint[0], waypoint[1]))
@@ -261,8 +237,16 @@ def get_robot_pose():
     # TODO: replace with your codes to estimate the pose of the robot
     # We STRONGLY RECOMMEND you to use your SLAM code from M2 here
 
+    img_poses = {}
+    with open(f'{script_dir}/lab_output/images.txt') as fp:
+        for line in fp.readlines(): 
+            pose_dict = ast.literal_eval(line)
+            img_poses[pose_dict['imgfname']] = pose_dict['pose']
+
+    x,y,theta = img_poses[img_poses.keys()[-1]]
+
     # update the robot pose [x,y,theta]
-    robot_pose = [0.0,0.0,0.0] # replace with your calculation
+    robot_pose = [x,y,theta] # replace with your calculation
     ####################################################
 
     return robot_pose
