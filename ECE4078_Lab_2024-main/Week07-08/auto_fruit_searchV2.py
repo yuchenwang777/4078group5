@@ -230,14 +230,10 @@ def rotate_to_point(waypoint, robot_pose):
     print(f"Turning for {turn_time:.2f} seconds")
     robot_pose[2] = desired_angle
     if angle_difference < 0:
-        print("turning left")
-        #ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+        ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
     else:
-        print("turning right")
-        #ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+        ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
 
-    #drive_to_point(waypoint,)
-    #time.sleep(turn_time)
     return robot_pose
     
     
@@ -269,7 +265,7 @@ def drive_to_point(waypoint, robot_pose):
         drive_time = 1  # Set a default drive time
 
     print(f"Driving for {drive_time:.2f} seconds")
-    #ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
     robot_pose[:2] = waypoint
     
     ####################################################
@@ -305,40 +301,46 @@ def get_robot_pose():
     return robot_pose
 
 def rotate_to_face_goal(goal, robot_pose):
+    # imports camera / wheel calibration parameters 
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
     fileB = "calibration/param/baseline.txt"
     baseline = np.loadtxt(fileB, delimiter=',')
-    # Calculate the angle to turn to face the goal
-    delta_x = goal[0] - robot_pose[0]
-    delta_y = goal[1] - robot_pose[1]
+    #(waypoint)
+    #print(robot_pose[0], robot_pose[1],(180/math.pi)*robot_pose[2])
     
-    # Handle division by zero
-    if delta_x == 0:
-        angle_to_goal = np.pi / 2 if delta_y > 0 else -np.pi / 2
-    else:
-        angle_to_goal = np.arctan2(delta_y, delta_x)
-    
+    ####################################################
     # Calculate the angle to turn
-    angle = angle_to_goal - robot_pose[2]
+    xg, yg = goal
+    x,y,th = robot_pose
+    
     
     # Normalize the angle to be within the range [-pi, pi]
-    angle = (angle + np.pi) % (2 * np.pi) - np.pi
+    #angle = (angle + np.pi) % (2 * np.pi) - np.pi
+    #print((180/math.pi)*angle)
+    desired_angle = np.arctan2(yg - y, xg - x)
+    current_angle = th
+    print((180/math.pi)*desired_angle)
+    angle_difference = desired_angle - current_angle
+    print((180/math.pi)*angle_difference)
+    while angle_difference>np.pi:
+        angle_difference-=np.pi*2
+    while angle_difference<=-np.pi:
+        angle_difference+=np.pi*2
 
     wheel_vel = 30  # tick
     
     # Calculate turn time
-    try:
-        turn_time = np.sqrt((baseline * abs(angle)) / (wheel_vel ** 2))
-        if np.isnan(turn_time) or turn_time <= 0:
-            raise ValueError("Invalid turn time calculated.")
-    except Exception as e:
-        print(f"Error calculating turn time: {e}")
-        turn_time = 1  # Set a default turn time
-
-    print(f"Rotating to face goal for {turn_time:.2f} seconds")
-    ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=1)
+    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
+    print(f"Turning for {turn_time:.2f} seconds")
+    robot_pose[2] = desired_angle
+    if angle_difference < 0:
+        ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+    else:
+        ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
     
     # Update the robot's orientation
-    robot_pose[2] = angle_to_goal
+    robot_pose[2] = desired_angle
 
     # Wait for 2 seconds
     time.sleep(2)
