@@ -48,7 +48,7 @@ class RRTC:
                  width=3,
                  height=3,
                  expand_dis=0.1, 
-                 path_resolution=0.001, 
+                 path_resolution=0.0001, 
                  max_points=200):
         """
         Setting Parameter
