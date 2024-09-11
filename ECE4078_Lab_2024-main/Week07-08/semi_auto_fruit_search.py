@@ -107,32 +107,88 @@ def print_target_fruits_pos(search_list, fruit_list, fruit_true_pos):
 # note that this function requires your camera and wheel calibration parameters from M2, and the "util" folder from M1
 # fully automatic navigation:
 # try developing a path-finding algorithm that produces the waypoints automatically
+def rotate_to_point(waypoint, robot_pose):
+    # imports camera / wheel calibration parameters 
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
+    fileB = "calibration/param/baseline.txt"
+    baseline = np.loadtxt(fileB, delimiter=',')
+    #(waypoint)
+    #print(robot_pose[0], robot_pose[1],(180/math.pi)*robot_pose[2])
+    
+    ####################################################
+    # Calculate the angle to turn
+    xg, yg = waypoint
+    x,y,th = robot_pose
+    
+    
+    # Normalize the angle to be within the range [-pi, pi]
+    #angle = (angle + np.pi) % (2 * np.pi) - np.pi
+    #print((180/math.pi)*angle)
+    desired_angle = np.arctan2(yg - y, xg - x)
+    current_angle = th
+    print((180/math.pi)*desired_angle)
+    angle_difference = desired_angle - current_angle
+    print((180/math.pi)*angle_difference)
+    while angle_difference>np.pi:
+        angle_difference-=np.pi*2
+    while angle_difference<=-np.pi:
+        angle_difference+=np.pi*2
+
+    wheel_vel = 30  # tick
+    
+    # Calculate turn time
+    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
+    print(f"Turning for {turn_time:.2f} seconds")
+    robot_pose[2] = desired_angle
+    if angle_difference < 0:
+        print("turning left")
+        #ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+    else:
+        print("turning right")
+        #ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+
+    #drive_to_point(waypoint,)
+    #time.sleep(turn_time)
+    return robot_pose
+    
+    
+
 def drive_to_point(waypoint, robot_pose):
     # imports camera / wheel calibration parameters 
     fileS = "calibration/param/scale.txt"
     scale = np.loadtxt(fileS, delimiter=',')
     fileB = "calibration/param/baseline.txt"
     baseline = np.loadtxt(fileB, delimiter=',')
+    #(waypoint)
+    #print(robot_pose[0], robot_pose[1],(180/math.pi)*robot_pose[2])
     
     ####################################################
-    # TODO: replace with your codes to make the robot drive to the waypoint
-    # One simple strategy is to first turn on the spot facing the waypoint,
-    # then drive straight to the way point
+    # Calculate the angle to turn
+    delta_x = waypoint[0] - robot_pose[0]
+    delta_y = waypoint[1] - robot_pose[1]
+    # Calculate the distance to the waypoint
+    distance = np.sqrt(delta_x ** 2 + delta_y ** 2)
+    wheel_vel = 50  # tick
 
-    wheel_vel = 30 # tick
+    # Calculate drive time
+    try:
+        drive_time = distance / (wheel_vel*scale)
+        if np.isnan(drive_time) or drive_time <= 0:
+            raise ValueError("Invalid drive time calculated.")
+    except Exception as e:
+        print(f"Error calculating drive time: {e}")
+        drive_time = 1  # Set a default drive time
+
+    print(f"Driving for {drive_time:.2f} seconds")
+    #ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    robot_pose[:2] = waypoint
     
-    # turn towards the waypoint
-    turn_time = 0.0 # replace with your calculation
-    print("Turning for {:.2f} seconds".format(turn_time))
-    ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
-    
-    # after turning, drive straight to the waypoint
-    drive_time = 0.0 # replace with your calculation
-    print("Driving for {:.2f} seconds".format(drive_time))
-    ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
     ####################################################
 
-    print("Arrived at [{}, {}]".format(waypoint[0], waypoint[1]))
+    print(f"Arrived at [{waypoint[0]}, {waypoint[1]}]")
+
+    return robot_pose
 
 
 def get_robot_pose():
@@ -162,14 +218,15 @@ def on_click(event):
     # based on the direction of your x/y axis my need to adjust x and y (+/-) to get the correct orientation
     # Invert x-axis to match typical coordinate system
     x = -x
-    
+    robot_pose = rotate_to_point([x, y], robot_pose)
+    robot_pose = drive_to_point([x,y],robot_pose)
     print(f"Clicked coordinates: ({x:.2f}, {y:.2f})")
     
     # Update the robot pose
     #this was just for testing GUI need to use control algorithm to update the robot pose
     # call drive_to_point function here and use x,y as inputs, along with current robot pose
-    theta = math.atan2( robot_pose[1]-y,  robot_pose[0]-x)
-    robot_pose = [x, y, theta] 
+    #theta = math.atan2(robot_pose[1]-y,  robot_pose[0]-x)
+    #robot_pose = [x, y, theta] 
     print(f"Updated robot pose: [{robot_pose[0]}, {robot_pose[1]}, {(180/math.pi)*robot_pose[2]}]")
     
     # Redraw the map image to clear previous circles
@@ -206,7 +263,7 @@ def draw_robot(x,y,orientation):
     draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill='red')
 
     # Draw an arrow to represent the robot's orientation
-    orientation = robot_pose[2]
+    orientation = robot_pose[2] +math.pi
     # Calculate the end point of the arrow
     arrow_length = 20  # Length of the arrow
     end_x = x + arrow_length * math.cos(orientation)
