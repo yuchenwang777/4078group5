@@ -39,7 +39,7 @@ class RRTNode:
         self.parent = parent
 
 class RRT:
-    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=5000, goal_bias=0.1):
+    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=5000, goal_bias=0.5):
         self.start = RRTNode(start[0], start[1])
         self.goal = RRTNode(goal[0], goal[1])
         self.obstacles = obstacles
@@ -100,7 +100,7 @@ class RRT:
 
 # genrating the obstacles taking into account size of robot and obstacle size
 # just making markers cirlces for now as im lazy can change to rectangles later if we want
-def generate_circular_obstacles(coordinates , robot_diameter=0.16, obstacle_diameter=0.1):
+def generate_circular_obstacles(coordinates , robot_diameter=0.16, obstacle_diameter=0.18):
     """
     Generates a list of Circle obstacles from given coordinates and radii, adjusted for robot and obstacle diameters.
 
@@ -382,6 +382,8 @@ def rotate_to_face_goal(goal, robot_pose):
     #return robot_pose
     return lv,rv,turn_time
 
+
+
 # main loop
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Fruit searching")
@@ -404,6 +406,7 @@ if __name__ == "__main__":
     robot = Robot(baseline, scale, camera_matrix, dist_coeffs)
     ekf = EKF(robot)
     
+    
 
     # read in the true map
     fruits_list, fruits_true_pos, aruco_true_pos = read_true_map(args.map)
@@ -419,7 +422,7 @@ if __name__ == "__main__":
     obstacles = generate_circular_obstacles(combined_positions)
 
     start = [0.0, 0.0,0.0]
-    map_size = 2.6 #should change to about 2.6 as robot cannot touch line
+    map_size = 2.8 #should change to about 2.6 as robot cannot touch line
 
     # Initialize path list
     full_path = []
@@ -440,6 +443,11 @@ if __name__ == "__main__":
                 #current_position = rotate_to_point(next_node, current_position)
                 current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
                 lv, rv, dt = drive_to_point(next_node, current_position)
+                if ekf.P[0,0] > 0.1 or ekf.P[1,1] > 0.1:
+                    for i in range(5):
+                        lv, rv = ppi.set_velocity([1, 0], tick=30, time=1)
+                        current_position = get_robot_pose(ekf,robot,lv,rv,1)
+
                 #current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 #current_position[:2] = next_node
                 current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
@@ -453,8 +461,18 @@ if __name__ == "__main__":
                     goal_indices.append(len(full_path)) 
                     break
             else:
-                print(f"No path found to goal {goal[:2]}")
-                break
+                print(f"No path found to goal {goal[:2]} going back to origin")
+                for node in reversed(full_path):
+                    lv, rv, dt = rotate_to_point(node[:2], current_position)
+                    current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
+                    lv, rv, dt = drive_to_point(node[:2], current_position)
+                    current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+                    print(f"Tracing back to: {node[:2]}")
+            # Retry reaching the goal
+                current_position = start
+                full_path = [start]
+                #break
+                
 
     if len(full_path) > 0:
         print("Full path found!")
