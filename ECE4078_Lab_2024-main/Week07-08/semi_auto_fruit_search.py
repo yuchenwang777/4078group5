@@ -143,10 +143,10 @@ def rotate_to_point(waypoint, robot_pose):
     robot_pose[2] = desired_angle
     if angle_difference < 0:
         print("turning left")
-        #ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+        ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
     else:
         print("turning right")
-        #ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+        ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
 
     #drive_to_point(waypoint,)
     #time.sleep(turn_time)
@@ -181,7 +181,7 @@ def drive_to_point(waypoint, robot_pose):
         drive_time = 1  # Set a default drive time
 
     print(f"Driving for {drive_time:.2f} seconds")
-    #ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
     robot_pose[:2] = waypoint
     
     ####################################################
@@ -323,7 +323,7 @@ def create_map_image(fruits_true_pos, aruco_true_pos, width=500, height=500):
 # main loop
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Fruit searching")
-    parser.add_argument("--map", type=str, default='M4_prac_map_full.txt') # change to 'M4_true_map_part.txt' for lv2&3
+    parser.add_argument("--map", type=str, default='map.txt') # change to 'M4_true_map_part.txt' for lv2&3
     parser.add_argument("--ip", metavar='', type=str, default='192.168.50.1')
     parser.add_argument("--port", metavar='', type=int, default=8080)
     args, _ = parser.parse_known_args()

@@ -14,6 +14,7 @@ import argparse
 from obstacles import *
 from operate import Operate
 
+
 # import SLAM components
 sys.path.insert(0, "{}/slam".format(os.getcwd()))
 from slam.ekf import EKF
@@ -38,7 +39,7 @@ class RRTNode:
         self.parent = parent
 
 class RRT:
-    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=1000):
+    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.4, max_iter=5000, goal_bias=0.1):
         self.start = RRTNode(start[0], start[1])
         self.goal = RRTNode(goal[0], goal[1])
         self.obstacles = obstacles
@@ -46,10 +47,14 @@ class RRT:
         self.step_size = step_size
         self.goal_threshold = goal_threshold
         self.max_iter = max_iter
+        self.goal_bias = goal_bias
         self.tree = [self.start]
 
     def get_random_point(self):
-        return (random.uniform(-self.map_size/2, self.map_size/2), random.uniform(-self.map_size/2, self.map_size/2))
+        if random.random() < self.goal_bias:
+            return (self.goal.x, self.goal.y)
+        else:
+            return (random.uniform(-self.map_size/2, self.map_size/2), random.uniform(-self.map_size/2, self.map_size/2))
 
     def get_nearest_node(self, point):
         nearest_node = self.tree[0]
@@ -224,16 +229,19 @@ def rotate_to_point(waypoint, robot_pose):
         angle_difference+=np.pi*2
 
     wheel_vel = 30  # tick
+    angle_error = angle_difference
     
     # Calculate turn time
-    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
-    print(f"Turning for {turn_time:.2f} seconds")
-    robot_pose[2] = desired_angle
-    if angle_difference < 0:
-        ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    else:
-        ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-
+    while abs(angle_error) > 0.1:
+        turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
+        print(f"Turning for {turn_time:.2f} seconds")
+        if angle_error < 0:
+            lv,rv= ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+        else:
+            lv,rv= ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+        robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
+        angle_error = desired_angle - robot_pose[2]
+    #return lv,rv, turn_time
     return robot_pose
     
     
@@ -254,48 +262,46 @@ def drive_to_point(waypoint, robot_pose):
     # Calculate the distance to the waypoint
     distance = np.sqrt(delta_x ** 2 + delta_y ** 2)
     wheel_vel = 50  # tick
+    distance_error = distance
 
     # Calculate drive time
-    try:
-        drive_time = distance / (wheel_vel*scale)
-        if np.isnan(drive_time) or drive_time <= 0:
-            raise ValueError("Invalid drive time calculated.")
-    except Exception as e:
-        print(f"Error calculating drive time: {e}")
-        drive_time = 1  # Set a default drive time
-
-    print(f"Driving for {drive_time:.2f} seconds")
-    ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-    robot_pose[:2] = waypoint
+    
+ 
+    while abs(distance_error) > 0.1:
+        drive_time = abs(distance_error) / (wheel_vel*scale)
+        print(distance_error)
+        print(f"Driving for {drive_time:.2f} seconds")
+        if distance_error < 0:
+            lv,rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+        else:
+            lv,rv = ppi.set_velocity([-1, 0], tick=wheel_vel, time=drive_time)
+    # maybe delete this later
+    ####################################################
+        robot_pose = get_robot_pose(ekf,robot,lv,rv,drive_time)
+        distance_error = np.sqrt((waypoint[0] - robot_pose[0]) ** 2 + (waypoint[1] - robot_pose[1]) ** 2) - np.sqrt(delta_x**2 + delta_y**2)
     
     ####################################################
 
     print(f"Arrived at [{waypoint[0]}, {waypoint[1]}]")
-
     return robot_pose
 
 
-def get_robot_pose():
+def get_robot_pose(ekf,robot,lv,rv, dt):
     ####################################################
-    # Initialize the Operate class
-    operate = Operate(args)
+    # TODO: replace with your codes to estimate the pose of the robot
+    # We STRONGLY RECOMMEND you to use your SLAM code from M2 here
 
-    # Get drive measurements
-    drive_meas = operate.control()
+    drive_meas = measure.Drive(lv, -rv, dt)
+    img = ppi.get_image_physical()
+    aruco_detector = aruco.aruco_detector(robot)
+    measurement, _ = aruco_detector.detect_marker_positions(img)
+    ekf.predict(drive_meas)
+    ekf.update(measurement)
 
-    # Take a picture to detect ARUCO markers
-    operate.take_pic()
-
-    # Update SLAM and get measurements
-    operate.update_slam(drive_meas)
-    measurements = operate.aruco_det.detect_marker_positions(operate.img)[0]
-
-    # Update the robot pose using SLAM
-    operate.ekf.predict(drive_meas)
-    operate.ekf.update(measurements)
-
-    # Get the updated robot pose
-    robot_pose = operate.ekf.robot.state.flatten().tolist()
+    # update the robot pose [x,y,theta]
+    state = ekf.get_state_vector() # replace with your calculation
+    robot_pose = [state[0].item(), state[1].item(), state[2].item()]
+    print(f"Actual pose: {robot_pose}")
     ####################################################
 
     return robot_pose
@@ -329,38 +335,55 @@ def rotate_to_face_goal(goal, robot_pose):
         angle_difference+=np.pi*2
 
     wheel_vel = 30  # tick
+    angle_error = angle_difference
     
     # Calculate turn time
-    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
-    print(f"Turning for {turn_time:.2f} seconds")
-    robot_pose[2] = desired_angle
-    if angle_difference < 0:
-        ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    else:
-        ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+    while abs(angle_error) > 0.1:
+        turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
+        print(f"Turning for {turn_time:.2f} seconds")
+        if angle_error < 0:
+            lv,rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+        else:
+            lv,rv =ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+        robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
+        angle_error = desired_angle - robot_pose[2]
     
-    # Update the robot's orientation
-    robot_pose[2] = desired_angle
-
     # Wait for 2 seconds
     time.sleep(2)
-
+    return robot_pose
 
 # main loop
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Fruit searching")
-    parser.add_argument("--map", type=str, default='M4_prac_map_full.txt') # change to 'M4_true_map_part.txt' for lv2&3
+    parser.add_argument("--map", type=str, default='map.txt') # change to 'M4_true_map_part.txt' for lv2&3
     parser.add_argument("--ip", metavar='', type=str, default='192.168.50.1')
     parser.add_argument("--port", metavar='', type=int, default=8080)
     args, _ = parser.parse_known_args()
 
     ppi = PenguinPi(args.ip,args.port)
 
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
+    fileB = "calibration/param/baseline.txt"
+    baseline = np.loadtxt(fileB, delimiter=',')
+    fileK = "calibration/param/intrinsic.txt"
+    camera_matrix = np.loadtxt(fileK, delimiter=',')
+    fileD = "calibration/param/distCoeffs.txt"
+    dist_coeffs = np.loadtxt(fileD, delimiter=',')
+
+    robot = Robot(baseline, scale, camera_matrix, dist_coeffs)
+    ekf = EKF(robot)
+    
+
     # read in the true map
     fruits_list, fruits_true_pos, aruco_true_pos = read_true_map(args.map)
     search_list = read_search_list()
     targetPose = print_target_fruits_pos(search_list, fruits_list, fruits_true_pos)
     combined_positions = np.vstack((fruits_true_pos, aruco_true_pos))
+
+    for i in range(len(aruco_true_pos)):
+        x , y = aruco_true_pos[i]
+        ekf.add_true_landmarks(i+1,x,y)
 
     # Generate obstacles
     obstacles = generate_circular_obstacles(combined_positions)
@@ -370,6 +393,7 @@ if __name__ == "__main__":
 
     # Initialize path list
     full_path = []
+    goal_indices = []
 
     # Sequentially navigate to each goal
 # Sequentially navigate to each goal
@@ -380,16 +404,21 @@ if __name__ == "__main__":
             path = rrt.build_rrt()
             if path:
                 next_node = path[1]  # Get the next node in the path
-                robot_pose = rotate_to_point(next_node, current_position)
-                robot_pose = drive_to_point(next_node, current_position)
+                expected_orientation = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
+                print(f"expected pose: {next_node,expected_orientation}")
+                current_position = rotate_to_point(next_node, current_position)
+                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
+                current_position = drive_to_point(next_node, current_position)
                 #current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 #current_position[:2] = next_node
-                #current_position = get_robot_pose()  # Update the robot's pose
-                current_position = robot_pose
+                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+                #current_position = robot_pose
                 full_path.append(current_position.copy())
-                if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:
+                if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.4:
                     print(f"Reached goal at coordinates: {goal[:2]}")
-                    rotate_to_face_goal(goal, current_position)
+                    current_position=rotate_to_face_goal(goal, current_position)
+                    #current_position = get_robot_pose(ekf,robot,lv,rv,dt)
+                    goal_indices.append(len(full_path)) 
                     break
             else:
                 print(f"No path found to goal {goal[:2]}")
@@ -433,15 +462,12 @@ for obstacle in obstacles:
         circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='gray')
         ax.add_patch(circle)
 
-# Draw full path with different colors for each segment
 if len(full_path) > 0:
-    colors = ['red', 'blue', 'orange', 'purple', 'cyan']  # List of colors
+    colors = ['red', 'green', 'orange', 'purple', 'cyan']  # List of colors
     full_path = np.array(full_path)
     segment_start = 0
-    for i, goal in enumerate(targetPose):
-        # Calculate distances to the goal
-        distances = np.linalg.norm(full_path[:, :2] - goal[:2], axis=1)
-        segment_end = np.argmin(distances) + 1
+    for i, goal_index in enumerate(goal_indices):
+        segment_end = goal_index
         ax.plot(full_path[segment_start:segment_end, 0], full_path[segment_start:segment_end, 1], '-o', color=colors[i % len(colors)])
         
         # Plot tiny black arrows to visualize orientation
@@ -452,6 +478,17 @@ if len(full_path) > 0:
             ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
         
         segment_start = segment_end
+
+    # Plot the last segment if there are remaining points
+    if segment_start < len(full_path):
+        ax.plot(full_path[segment_start:, 0], full_path[segment_start:, 1], '-o', color=colors[len(goal_indices) % len(colors)])
+        
+        # Plot tiny black arrows to visualize orientation for the last segment
+        for j in range(segment_start, len(full_path)):
+            x, y, theta = full_path[j]
+            dx = 0.1 * np.cos(theta)  # Scale the arrow length as needed
+            dy = 0.1 * np.sin(theta)
+            ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
 
 plt.gca().invert_xaxis()  # Invert x-axis
 plt.gca().invert_yaxis()  # Invert y-axis

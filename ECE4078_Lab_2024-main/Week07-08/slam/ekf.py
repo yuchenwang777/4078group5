@@ -83,6 +83,9 @@ class EKF:
     # EKF functions
     # Tune your SLAM algorithm here
     # ########################################
+    @staticmethod
+    def wrap_to_pi(angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
 
     # the prediction step of EKF
     def predict(self, raw_drive_meas):
@@ -102,18 +105,20 @@ class EKF:
 
     # the update step of EKF
     def update(self, measurements):
-        if not measurements:
+        valid_measurements = [lm for lm in measurements if 1 <= lm.tag <= 10]
+
+        if not valid_measurements:
             return
 
         # Construct measurement index list
-        tags = [lm.tag for lm in measurements]
+        tags = [lm.tag for lm in valid_measurements]
         idx_list = [self.taglist.index(tag) for tag in tags]
 
         # Stack measurements and set covariance
-        z = np.concatenate([lm.position.reshape(-1,1) for lm in measurements], axis=0)
-        R = np.zeros((2*len(measurements),2*len(measurements)))
-        for i in range(len(measurements)):
-            R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance
+        z = np.concatenate([lm.position.reshape(-1,1) for lm in valid_measurements], axis=0)
+        R = np.zeros((2*len(valid_measurements),2*len(valid_measurements)))
+        for i in range(len(valid_measurements)):
+            R[2*i:2*i+2,2*i:2*i+2] = valid_measurements[i].covariance
 
         # Compute own measurements
         z_hat = self.robot.measure(self.markers, idx_list)
@@ -129,6 +134,7 @@ class EKF:
         # LOCATION OF ITEM CHANGE 1: 
         #self.P = (np.eye(x.shape[0])-K@H)@self.P
         self.P = (np.eye(len(K))-K@H)@self.P
+        ux[2] = self.wrap_to_pi(ux[2])
 
         self.set_state_vector(ux)
 
@@ -178,6 +184,17 @@ class EKF:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
+
+    def add_true_landmarks(self, tag, x,y):
+        self.taglist.append(int(tag))
+
+        self.markers = np.concatenate((self.markers, np.array([[x],[y]])), axis=1)
+
+        # Create a zero covariance
+        self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
+        self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
+        self.P[-2,-2] = 1e-16
+        self.P[-1,-1] = 1e-16
             
 
     ##########################################
