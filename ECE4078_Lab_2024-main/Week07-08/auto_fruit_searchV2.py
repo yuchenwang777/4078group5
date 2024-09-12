@@ -39,7 +39,7 @@ class RRTNode:
         self.parent = parent
 
 class RRT:
-    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.4, max_iter=5000, goal_bias=0.1):
+    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=5000, goal_bias=0.1):
         self.start = RRTNode(start[0], start[1])
         self.goal = RRTNode(goal[0], goal[1])
         self.obstacles = obstacles
@@ -220,9 +220,7 @@ def rotate_to_point(waypoint, robot_pose):
     #print((180/math.pi)*angle)
     desired_angle = np.arctan2(yg - y, xg - x)
     current_angle = th
-    print((180/math.pi)*desired_angle)
     angle_difference = desired_angle - current_angle
-    print((180/math.pi)*angle_difference)
     while angle_difference>np.pi:
         angle_difference-=np.pi*2
     while angle_difference<=-np.pi:
@@ -230,19 +228,27 @@ def rotate_to_point(waypoint, robot_pose):
 
     wheel_vel = 30  # tick
     angle_error = angle_difference
+
+    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
+    #print(f"Turning for {turn_time:.2f} seconds")
+    robot_pose[2] = desired_angle
+    if angle_difference < 0:
+        lv, rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+    else:
+        lv, rv = ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
     
     # Calculate turn time
-    while abs(angle_error) > 0.1:
-        turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
-        print(f"Turning for {turn_time:.2f} seconds")
-        if angle_error < 0:
-            lv,rv= ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-        else:
-            lv,rv= ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-        robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
-        angle_error = desired_angle - robot_pose[2]
-    #return lv,rv, turn_time
-    return robot_pose
+    #while abs(angle_error) > 0.05:
+    #    turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
+    #    print(f"Turning for {turn_time:.2f} seconds")
+    #    if angle_error < 0:
+    #        lv,rv= ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+    #    else:
+    #        lv,rv= ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+    #    robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
+    #    angle_error = desired_angle - robot_pose[2]
+    return lv,rv, turn_time
+    #return robot_pose
     
     
 
@@ -259,31 +265,46 @@ def drive_to_point(waypoint, robot_pose):
     # Calculate the angle to turn
     delta_x = waypoint[0] - robot_pose[0]
     delta_y = waypoint[1] - robot_pose[1]
+    prev_x = robot_pose[0]
+    prev_y = robot_pose[1]
     # Calculate the distance to the waypoint
     distance = np.sqrt(delta_x ** 2 + delta_y ** 2)
     wheel_vel = 50  # tick
     distance_error = distance
 
     # Calculate drive time
+    try:
+        drive_time = distance / (wheel_vel*scale)
+        if np.isnan(drive_time) or drive_time <= 0:
+            raise ValueError("Invalid drive time calculated.")
+    except Exception as e:
+        #print(f"Error calculating drive time: {e}")
+        drive_time = 1  # Set a default drive time
+
+    #print(f"Driving for {drive_time:.2f} seconds")
+    lv, rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    #robot_pose[:2] = waypoint
+    
     
  
-    while abs(distance_error) > 0.1:
-        drive_time = abs(distance_error) / (wheel_vel*scale)
-        print(distance_error)
-        print(f"Driving for {drive_time:.2f} seconds")
-        if distance_error < 0:
-            lv,rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-        else:
-            lv,rv = ppi.set_velocity([-1, 0], tick=wheel_vel, time=drive_time)
+    #while abs(distance_error) > 0.01:
+    #    drive_time = abs(distance_error) / (wheel_vel*scale)
+    #    print(distance_error)
+    #    print(f"Driving for {drive_time:.2f} seconds")
+    #    if distance_error < 0:
+    #        lv,rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    #    else:
+    #        lv,rv = ppi.set_velocity([-1, 0], tick=wheel_vel, time=drive_time)
     # maybe delete this later
     ####################################################
-        robot_pose = get_robot_pose(ekf,robot,lv,rv,drive_time)
-        distance_error = np.sqrt((waypoint[0] - robot_pose[0]) ** 2 + (waypoint[1] - robot_pose[1]) ** 2) - np.sqrt(delta_x**2 + delta_y**2)
+        #robot_pose = get_robot_pose(ekf,robot,lv,rv,drive_time)
+        #distance_error = np.sqrt((prev_x - robot_pose[0]) ** 2 + (prev_y - robot_pose[1]) ** 2) - np.sqrt(delta_x**2 + delta_y**2)
     
     ####################################################
 
     print(f"Arrived at [{waypoint[0]}, {waypoint[1]}]")
-    return robot_pose
+    #return robot_pose
+    return lv,rv, drive_time
 
 
 def get_robot_pose(ekf,robot,lv,rv, dt):
@@ -336,21 +357,30 @@ def rotate_to_face_goal(goal, robot_pose):
 
     wheel_vel = 30  # tick
     angle_error = angle_difference
+
+    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
+    print(f"Turning for {turn_time:.2f} seconds")
+    robot_pose[2] = desired_angle
+    if angle_difference < 0:
+        lv,rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+    else:
+        lv,rv = ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
     
     # Calculate turn time
-    while abs(angle_error) > 0.1:
-        turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
-        print(f"Turning for {turn_time:.2f} seconds")
-        if angle_error < 0:
-            lv,rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-        else:
-            lv,rv =ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-        robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
-        angle_error = desired_angle - robot_pose[2]
+    #while abs(angle_error) > 0.05:
+    #    turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
+    #    print(f"Turning for {turn_time:.2f} seconds")
+    #    if angle_error < 0:
+    #        lv,rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
+    #    else:
+    #        lv,rv =ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+    #    robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
+    #    angle_error = desired_angle - robot_pose[2]
     
     # Wait for 2 seconds
-    time.sleep(2)
-    return robot_pose
+    time.sleep(4)
+    #return robot_pose
+    return lv,rv,turn_time
 
 # main loop
 if __name__ == "__main__":
@@ -406,17 +436,19 @@ if __name__ == "__main__":
                 next_node = path[1]  # Get the next node in the path
                 expected_orientation = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 print(f"expected pose: {next_node,expected_orientation}")
-                current_position = rotate_to_point(next_node, current_position)
-                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
-                current_position = drive_to_point(next_node, current_position)
+                lv, rv, dt = rotate_to_point(next_node, current_position)
+                #current_position = rotate_to_point(next_node, current_position)
+                current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
+                lv, rv, dt = drive_to_point(next_node, current_position)
                 #current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 #current_position[:2] = next_node
-                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+                current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
                 #current_position = robot_pose
                 full_path.append(current_position.copy())
-                if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.4:
+                if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:
                     print(f"Reached goal at coordinates: {goal[:2]}")
-                    current_position=rotate_to_face_goal(goal, current_position)
+                    #lv,rv,dt=rotate_to_face_goal(goal, current_position)
+                    time.sleep(5)
                     #current_position = get_robot_pose(ekf,robot,lv,rv,dt)
                     goal_indices.append(len(full_path)) 
                     break
