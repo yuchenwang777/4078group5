@@ -364,10 +364,7 @@ if __name__ == "__main__":
 
     # Generate obstacles
     obstacles = generate_circular_obstacles(combined_positions)
-    drive_to_point([1,1], [0,0,0])
 
-    #waypoint = [0.0,0.0]
-    #robot_pose = [0.0,0.0,0.0]
     start = [0.0, 0.0,0.0]
     map_size = 3.0 #should change to about 2.6 as robot cannot touch line
 
