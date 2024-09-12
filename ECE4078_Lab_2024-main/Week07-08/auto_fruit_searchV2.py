@@ -366,7 +366,7 @@ if __name__ == "__main__":
     obstacles = generate_circular_obstacles(combined_positions)
 
     start = [0.0, 0.0,0.0]
-    map_size = 3.0 #should change to about 2.6 as robot cannot touch line
+    map_size = 2.6 #should change to about 2.6 as robot cannot touch line
 
     # Initialize path list
     full_path = []
