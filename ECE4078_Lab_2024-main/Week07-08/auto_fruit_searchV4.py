@@ -312,8 +312,9 @@ def drive_to_point(waypoint, robot_pose):
     distance_error = distance
     # Calculate the distance to the waypoint
     wheel_vel = 50  # tick
-    Kp = 0.5  # Proportional gain/ may need to change.
+    Kp = 0.5  # Proportional gain may need to change.
 
+    #just making it large value so doesn't reverse at start
     previous_distance_error = 1000
 
     #error at 5cm can decrease for more accuracy
