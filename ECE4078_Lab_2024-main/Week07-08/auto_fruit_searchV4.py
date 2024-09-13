@@ -235,7 +235,7 @@ def print_target_fruits_pos(search_list, fruit_list, fruit_true_pos):
 # note that this function requires your camera and wheel calibration parameters from M2, and the "util" folder from M1
 # fully automatic navigation:
 # try developing a path-finding algorithm that produces the waypoints automatically
-def rotate_to_point(waypoint, robot_pose):
+def rotate_to_point(waypoint, robot_pose,ekf,robot):
     # imports camera / wheel calibration parameters 
     fileS = "calibration/param/scale.txt"
     scale = np.loadtxt(fileS, delimiter=',')
@@ -292,7 +292,7 @@ def rotate_to_point(waypoint, robot_pose):
     
     
 
-def drive_to_point(waypoint, robot_pose):
+def drive_to_point(waypoint, robot_pose, ekf, robot):
     # imports camera / wheel calibration parameters 
     fileS = "calibration/param/scale.txt"
     scale = np.loadtxt(fileS, delimiter=',')
@@ -477,9 +477,9 @@ if __name__ == "__main__":
                 next_node = path[1]  # Get the next node in the path
                 expected_orientation = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 print(f"expected pose: {next_node,expected_orientation}")
-                lv, rv, dt = rotate_to_point(next_node, current_position)
+                lv, rv, dt = rotate_to_point(next_node, current_position,ekf,robot)
                 current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
-                lv, rv, dt = drive_to_point(next_node, current_position)
+                lv, rv, dt = drive_to_point(next_node, current_position,ekf,robot)
                 current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
 
                 # Check if the robot has deviated significantly from the expected pose
