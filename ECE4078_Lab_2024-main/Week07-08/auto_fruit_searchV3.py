@@ -39,7 +39,7 @@ class RRTNode:
         self.parent = parent
 
 class RRT:
-    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=5000, goal_bias=0.2):
+    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=1000, goal_bias=0.2):
         self.start = RRTNode(start[0], start[1])
         self.goal = RRTNode(goal[0], goal[1])
         self.obstacles = obstacles
@@ -457,7 +457,7 @@ if __name__ == "__main__":
     obstacles = generate_circular_obstacles(combined_positions)
 
     start = [0.0, 0.0,0.0]
-    map_size = 2.8 #should change to about 2.6 as robot cannot touch line
+    map_size = 2.7 #should change to about 2.6 as robot cannot touch line
 
     # Initialize path list
     full_path = []
@@ -493,7 +493,7 @@ if __name__ == "__main__":
                 if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:
                     print(f"Reached goal at coordinates: {goal[:2]}")
                     #lv,rv,dt=rotate_to_face_goal(goal, current_position)
-                    time.sleep(5)
+                    time.sleep(3)
                     #current_position = get_robot_pose(ekf,robot,lv,rv,dt)
                     goal_indices.append(len(full_path)) 
                     break
@@ -551,32 +551,15 @@ for obstacle in obstacles:
         ax.add_patch(circle)
 
 if len(full_path) > 0:
-    colors = ['red', 'green', 'orange', 'purple', 'cyan']  # List of colors
-    full_path = np.array(full_path)
-    segment_start = 0
-    for i, goal_index in enumerate(goal_indices):
-        segment_end = goal_index
-        ax.plot(full_path[segment_start:segment_end, 0], full_path[segment_start:segment_end, 1], '-o', color=colors[i % len(colors)])
-        
-        # Plot tiny black arrows to visualize orientation
-        for j in range(segment_start, segment_end):
-            x, y, theta = full_path[j]
-            dx = 0.1 * np.cos(theta)  # Scale the arrow length as needed
-            dy = 0.1 * np.sin(theta)
-            ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
-        
-        segment_start = segment_end
+    full_path = [(0.0,0.0,0.0)] + full_path
+    full_path =  np.array(full_path)
+    ax.plot(full_path[:, 0], full_path[:, 1], '-o', color='blue')  # Plot the full path as a continuous line
 
-    # Plot the last segment if there are remaining points
-    if segment_start < len(full_path):
-        ax.plot(full_path[segment_start:, 0], full_path[segment_start:, 1], '-o', color=colors[len(goal_indices) % len(colors)])
-        
-        # Plot tiny black arrows to visualize orientation for the last segment
-        for j in range(segment_start, len(full_path)):
-            x, y, theta = full_path[j]
-            dx = 0.1 * np.cos(theta)  # Scale the arrow length as needed
-            dy = 0.1 * np.sin(theta)
-            ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
+    # Plot tiny black arrows to visualize orientation
+    for x, y, theta in full_path:
+        dx = 0.1 * np.cos(theta)  # Scale the arrow length as needed
+        dy = 0.1 * np.sin(theta)
+        ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
 
 plt.gca().invert_xaxis()  # Invert x-axis
 plt.gca().invert_yaxis()  # Invert y-axis
