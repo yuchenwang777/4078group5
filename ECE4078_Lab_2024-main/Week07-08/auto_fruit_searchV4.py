@@ -262,26 +262,31 @@ def rotate_to_point(waypoint, robot_pose):
         angle_difference+=np.pi*2
 
     wheel_vel = 30  # tick
-    angle_error = angle_difference
+    Kp = 0.5 # Proportional gain/ may need to change for better performance, if this works at all
 
-    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
-    #print(f"Turning for {turn_time:.2f} seconds")
-    #robot_pose[2] = desired_angle
-    if angle_difference < 0:
-        lv, rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    else:
-        lv, rv = ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+    while abs(angle_difference) > 0.05:  # Continue rotating until the angle error is small about 3 degrees can decrease if needed
+        # Calculate the time to turn
+        turn_time = Kp*abs(baseline * angle_difference / (scale * wheel_vel)) 
+
+        # Turn the robot in the correct direction
+        if angle_difference < 0:
+            lv, rv = ppi.set_velocity([0, -1], turning_tick=wheel_vel, time=turn_time)
+        else:
+            lv, rv = ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
+
+        # Update the robot's pose using SLAM
+        current_pose = get_robot_pose(ekf, robot, lv, rv, turn_time)
+        x, y, th = current_pose
+
+        # Recalculate the angle difference
+        desired_angle = np.arctan2(yg - y, xg - x)
+        angle_difference = desired_angle - th
+
+        while angle_difference > np.pi:
+            angle_difference -= np.pi * 2
+        while angle_difference <= -np.pi:
+            angle_difference += np.pi * 2
     
-    # Calculate turn time
-    #while abs(angle_error) > 0.05:
-    #    turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
-    #    print(f"Turning for {turn_time:.2f} seconds")
-    #    if angle_error < 0:
-    #        lv,rv= ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    #    else:
-    #        lv,rv= ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-    #    robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
-    #    angle_error = desired_angle - robot_pose[2]
     return lv,rv, turn_time
     #return robot_pose
     
@@ -298,42 +303,39 @@ def drive_to_point(waypoint, robot_pose):
     
     ####################################################
     # Calculate the angle to turn
-    delta_x = waypoint[0] - robot_pose[0]
-    delta_y = waypoint[1] - robot_pose[1]
-    prev_x = robot_pose[0]
-    prev_y = robot_pose[1]
-    # Calculate the distance to the waypoint
+    xg, yg = waypoint
+    x, y, th = robot_pose
+
+    delta_x = xg - x
+    delta_y = yg - y
     distance = np.sqrt(delta_x ** 2 + delta_y ** 2)
-    wheel_vel = 50  # tick
     distance_error = distance
+    # Calculate the distance to the waypoint
+    wheel_vel = 50  # tick
+    Kp = 0.5  # Proportional gain/ may need to change.
 
-    # Calculate drive time
-    try:
-        drive_time = distance / (wheel_vel*scale)
-        if np.isnan(drive_time) or drive_time <= 0:
-            raise ValueError("Invalid drive time calculated.")
-    except Exception as e:
-        #print(f"Error calculating drive time: {e}")
-        drive_time = 1  # Set a default drive time
+    previous_distance_error = 1000
 
-    #print(f"Driving for {drive_time:.2f} seconds")
-    lv, rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-    #robot_pose[:2] = waypoint
-    
-    
- 
-    #while abs(distance_error) > 0.01:
-    #    drive_time = abs(distance_error) / (wheel_vel*scale)
-    #    print(distance_error)
-    #    print(f"Driving for {drive_time:.2f} seconds")
-    #    if distance_error < 0:
-    #        lv,rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-    #    else:
-    #        lv,rv = ppi.set_velocity([-1, 0], tick=wheel_vel, time=drive_time)
-    # maybe delete this later
-    ####################################################
-        #robot_pose = get_robot_pose(ekf,robot,lv,rv,drive_time)
-        #distance_error = np.sqrt((prev_x - robot_pose[0]) ** 2 + (prev_y - robot_pose[1]) ** 2) - np.sqrt(delta_x**2 + delta_y**2)
+    #error at 5cm can decrease for more accuracy
+    while distance_error > 0.05:  # Continue driving until the distance error is small
+        drive_time = Kp*(distance_error / (wheel_vel * scale))
+
+        # reverse if robot has gone past the waypoint
+        if distance_error > previous_distance_error:
+            lv, rv = ppi.set_velocity([-1, 0], tick=wheel_vel, time=drive_time)
+        # drive forward towards the waypoint
+        else:
+            lv, rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+
+        # Update the robot's pose using SLAM
+        current_pose = get_robot_pose(ekf, robot, lv, rv, drive_time)
+        x, y, th = current_pose
+
+        # Recalculate the distance error
+        delta_x = xg - x
+        delta_y = yg - y
+        previous_distance_error = distance_error
+        distance_error = np.sqrt(delta_x ** 2 + delta_y ** 2)
     
     ####################################################
 
