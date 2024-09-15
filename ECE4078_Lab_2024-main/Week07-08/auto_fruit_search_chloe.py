@@ -221,3 +221,92 @@ def rotate_to_point(waypoint, robot_pose):
         lv, rv = ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
 
     robot_pose[2] = desired_angle  # Update robot
+
+# Main loop with debugging and A* pathfinding (no visualization)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Fruit searching")
+    parser.add_argument("--map", type=str, default='map.txt')  # change to 'M4_true_map_part.txt' for lv2&3
+    parser.add_argument("--ip", metavar='', type=str, default='192.168.50.1')
+    parser.add_argument("--port", metavar='', type=int, default=8080)
+    args, _ = parser.parse_known_args()
+
+    ppi = PenguinPi(args.ip, args.port)
+
+    # Load calibration parameters
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
+    fileB = "calibration/param/baseline.txt"
+    baseline = np.loadtxt(fileB, delimiter=',')
+    fileK = "calibration/param/intrinsic.txt"
+    camera_matrix = np.loadtxt(fileK, delimiter=',')
+    fileD = "calibration/param/distCoeffs.txt"
+    dist_coeffs = np.loadtxt(fileD, delimiter=',')
+
+    robot = Robot(baseline, scale, camera_matrix, dist_coeffs)
+    ekf = EKF(robot)
+
+    # Read in the true map
+    fruits_list, fruits_true_pos, aruco_true_pos = read_true_map(args.map)
+    search_list = read_search_list()
+    targetPose = print_target_fruits_pos(search_list, fruits_list, fruits_true_pos)
+    combined_positions = np.vstack((fruits_true_pos, aruco_true_pos))
+
+    # Add ArUco markers to the EKF
+    for i in range(len(aruco_true_pos)):
+        x, y = aruco_true_pos[i]
+        ekf.add_true_landmarks(i + 1, x, y)
+
+    # Generate obstacles
+    obstacles = generate_circular_obstacles(combined_positions)
+    start = [0.0, 0.0, 0.0]  # Robot start position
+    map_size = 2.8  # Adjust map size accordingly
+
+    # Initialize path list
+    full_path = []
+    goal_indices = []
+
+    # Sequentially navigate to each goal
+    current_position = start.copy()
+    for goal in targetPose:
+        while True:
+            # A* pathfinding with debugging
+            print(f"Planning path to goal: {goal[:2]}")
+            astar = AStar(current_position[:2], goal[:2], obstacles, map_size, grid_res=0.1)
+            path = astar.build_astar_path()
+            if path is None:
+                print(f"No path found to goal {goal[:2]}, stopping search.")
+                break  # Exit the loop if no path found
+
+            print(f"Path found: {path}")
+            next_node = path[1]  # Get the next node in the path
+            expected_orientation = math.atan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
+            print(f"Expected pose: {next_node}, Orientation: {math.degrees(expected_orientation):.2f} degrees")
+
+            # Rotate to face the next node
+            lv, rv, dt = rotate_to_point(next_node, current_position)
+            current_position = get_robot_pose(ekf, robot, lv, rv, dt)  # Update the robot's pose
+            full_path.append(current_position.copy())
+
+            # Drive to the next node
+            lv, rv, dt = drive_to_point(next_node, current_position)
+            current_position = get_robot_pose(ekf, robot, lv, rv, dt)  # Update the robot's pose
+            full_path.append(current_position.copy())
+
+            # If EKF uncertainty is too high, perform additional corrections
+            if ekf.P[0, 0] > 0.1 or ekf.P[1, 1] > 0.1:
+                print("High uncertainty detected, performing corrections.")
+                for _ in range(5):
+                    lv, rv = ppi.set_velocity([1, 0], tick=30, time=1)
+                    current_position = get_robot_pose(ekf, robot, lv, rv, 1)
+                    full_path.append(current_position.copy())
+
+            # Check if goal is reached
+            if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:
+                print(f"Reached goal at coordinates: {goal[:2]}")
+                goal_indices.append(len(full_path))
+                break
+
+    if full_path:
+        print("Full path found!")
+    else:
+        print("No full path found.")
