@@ -9,7 +9,7 @@ import argparse
 import time
 import tkinter as tk
 from PIL import Image, ImageTk
-from calibration.wheel_calibration import calibrateWheelRadius, calibrateBaseline
+#from calibration.wheel_calibration import calibrateWheelRadius, calibrateBaseline
 
 #import SLAM components
 sys.path.insert(0, "{}/slam".format(os.getcwd()))
@@ -21,6 +21,15 @@ import slam.aruco_detector as aruco
 sys.path.insert(0, "util")
 from util.pibot import PenguinPi
 import util.measure as measure
+
+
+def get_obstacles(fruits_true_pos, aruco_true_pos):
+    '''
+    Gets list of obstacles across x and y axis
+    '''
+    # TODO: Complete this function
+    print("Hello, World!")
+    return ox, oy
 
 
 def read_true_map(fname):
@@ -67,7 +76,7 @@ def read_search_list():
     @return: search order of the target fruits
     """
     search_list = []
-    with open('search_list.txt', 'r') as fd:
+    with open('M4_prac_shopping_list.txt', 'r') as fd:
         fruits = fd.readlines()
 
         for fruit in fruits:
@@ -113,29 +122,26 @@ def drive_to_point(waypoint, robot_pose):
     # One simple strategy is to first turn on the spot facing the waypoint,
     # then drive straight to the way point
 
-    angle = np.arctan((waypoint[1]-robot_pose[1])/(waypoint[0]-robot_pose[0])) #finding the angle from the robot to the way point.
-    angle = robot_pose[-1] - angle #taking the pose of the robot into account to find the angle to turn
-
-
-    wheel_vel = 30 # tick
+    wheel_vel = 50 # tick
     
-    # turn towards the waypoint
-    turn_time = np.sqrt((baseline*angle)/(wheel_vel)**2) # replace with your calculation
+    # TODO: implement path planning algorithm:
+    # 1. obtain path in form of x, y
+    # 2. use for loop to travel through path to reach point
+    # 3. need to find a way to calculate and minimise error between expected (waypoint) and result location (using SLAM)
+    # pathx,pathy = planner_module.get_path(waypoint)
 
+    # turn towards the waypoint
+    angle = robot_pose[-1] - np.arctan((waypoint[-1]-robot_pose[1]/(waypoint[0]-robot_pose[0])))
+    turn_time = (((baseline*angle)/wheel_vel)**2)**(1/2) # replace with your calculation
     print("Turning for {:.2f} seconds".format(turn_time))
     ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
     
     # after turning, drive straight to the waypoint
+    distance = np.sqrt(((waypoint[1]-robot_pose[1])**2)+((waypoint[0]-robot_pose[0])**2))
 
-    d = ( np.sqrt(waypoint[1]**2-robot_pose[1]**2)+np.sqrt(waypoint[0]**2-robot_pose[0])**2) #calculating the distance to the point
-
-    drive_time = d*scale # replace with your calculation
-
+    drive_time = distance*scale # replace with your calculation
     print("Driving for {:.2f} seconds".format(drive_time))
     ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-    
-
-    #END TODO 
     ####################################################
 
     print("Arrived at [{}, {}]".format(waypoint[0], waypoint[1]))
@@ -146,25 +152,16 @@ def get_robot_pose():
     # TODO: replace with your codes to estimate the pose of the robot
     # We STRONGLY RECOMMEND you to use your SLAM code from M2 here
 
-    img_poses = {}
-    with open(f'{script_dir}/lab_output/images.txt') as fp:
-        for line in fp.readlines(): 
-            pose_dict = ast.literal_eval(line)
-            img_poses[pose_dict['imgfname']] = pose_dict['pose']
-
-    x,y,theta = img_poses[img_poses.keys()[-1]]
-
     # update the robot pose [x,y,theta]
-    robot_pose = [x,y,theta] # replace with your calculation
+    robot_pose = [0.0,0.0,0.0] # replace with your calculation
     ####################################################
 
     return robot_pose
 
-
 # main loop
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Fruit searching")
-    parser.add_argument("--map", type=str, default='M4_true_map_full.txt') # change to 'M4_true_map_part.txt' for lv2&3
+    parser.add_argument("--map", type=str, default='M4_prac_map_full.txt') # change to 'M4_true_map_part.txt' for lv2&3
     parser.add_argument("--ip", metavar='', type=str, default='192.168.50.1')
     parser.add_argument("--port", metavar='', type=int, default=8080)
     args, _ = parser.parse_known_args()
@@ -179,27 +176,31 @@ if __name__ == "__main__":
     waypoint = [0.0,0.0]
     robot_pose = [0.0,0.0,0.0]
 
+    # Get obstacles (ox, oy)
+    #ox, oy = get_obstacles(fruits_true_pos, aruco_true_pos)
+    # Initialise Path Planning module
+    #planner_module = PathPlanning(ox=None, oy=None)
     # The following is only a skeleton code for semi-auto navigation
     while True:
         # enter the waypoints
         # instead of manually enter waypoints, you can give coordinates by clicking on a map, see camera_calibration.py from M2
         x,y = 0.0,0.0
-        x = input("X coordinate of the waypoint: ")
+        x = input("X coordinate of the waypoint (cm): ")
         try:
             x = float(x)
         except ValueError:
             print("Please enter a number.")
             continue
-        y = input("Y coordinate of the waypoint: ")
+        y = input("Y coordinate of the waypoint (cm): ")
         try:
             y = float(y)
         except ValueError:
             print("Please enter a number.")
             continue
-
+        x *= 100.0
+        y *= 100.0
         # estimate the robot's pose
-        robot_pose = get_robot_pose()
-
+        robot_pose = get_robot_pose() # TODO: Implement SLAM code for this
         # robot drives to the waypoint
         waypoint = [x,y]
         drive_to_point(waypoint,robot_pose)
