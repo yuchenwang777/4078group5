@@ -1,0 +1,223 @@
+# M4 - Autonomous fruit searching
+
+# Basic Python packages
+import sys, os
+import cv2
+import numpy as np
+import json
+import argparse
+import time
+import tkinter as tk
+from PIL import Image, ImageTk, ImageDraw
+import math
+from obstacles import *
+from operate import Operate
+import random
+import matplotlib.pyplot as plt
+
+# Import SLAM components
+sys.path.insert(0, "{}/slam".format(os.getcwd()))
+from slam.ekf import EKF
+from slam.robot import Robot
+import slam.aruco_detector as aruco
+
+# Import utility functions
+sys.path.insert(0, "util")
+from pibot import PenguinPi
+import measure as measure
+
+# A* Node and A* Algorithm
+import heapq
+
+class AStarNode:
+    def __init__(self, x, y, cost=0, parent=None):
+        self.x = x
+        self.y = y
+        self.cost = cost  # g(n): Cost from start to current node
+        self.parent = parent
+
+    def __lt__(self, other):
+        return self.cost < other.cost
+
+class AStar:
+    def __init__(self, start, goal, obstacles, map_size, grid_res=0.1):
+        self.start = AStarNode(start[0], start[1])
+        self.goal = AStarNode(goal[0], goal[1])
+        self.obstacles = obstacles
+        self.map_size = map_size
+        self.grid_res = grid_res
+        self.open_list = []
+        self.closed_list = set()
+
+    def heuristic(self, node):
+        """Heuristic function to estimate the distance from the current node to the goal."""
+        return ((node.x - self.goal.x) ** 2 + (node.y - self.goal.y) ** 2) ** 0.5
+
+    def get_neighbors(self, node):
+        """Get all valid neighbors of the current node."""
+        neighbors = []
+        directions = [(-self.grid_res, 0), (self.grid_res, 0), (0, -self.grid_res), (0, self.grid_res),
+                      (-self.grid_res, -self.grid_res), (-self.grid_res, self.grid_res),
+                      (self.grid_res, -self.grid_res), (self.grid_res, self.grid_res)]
+        
+        for d in directions:
+            neighbor_x = node.x + d[0]
+            neighbor_y = node.y + d[1]
+            new_node = AStarNode(neighbor_x, neighbor_y, node.cost + self.grid_res, node)
+            
+            # Check if the neighbor collides with obstacles
+            if not self.is_collision(new_node):
+                neighbors.append(new_node)
+
+        return neighbors
+
+    def is_collision(self, node):
+        """Check if a node collides with any obstacles."""
+        for obstacle in self.obstacles:
+            if obstacle.is_in_collision_with_points([(node.x, node.y)]):
+                return True
+        return False
+
+    def build_astar_path(self):
+        """A* algorithm to build the optimal path."""
+        start_node = self.start
+        goal_node = self.goal
+        heapq.heappush(self.open_list, (self.heuristic(start_node), start_node))
+
+        while self.open_list:
+            _, current_node = heapq.heappop(self.open_list)
+
+            # If we reached the goal, build the path
+            if ((current_node.x - goal_node.x) ** 2 + (current_node.y - goal_node.y) ** 2) ** 0.5 < self.grid_res:
+                return self.get_path(current_node)
+
+            self.closed_list.add((round(current_node.x, 2), round(current_node.y, 2)))
+
+            # Get neighbors and explore them
+            for neighbor in self.get_neighbors(current_node):
+                if (round(neighbor.x, 2), round(neighbor.y, 2)) in self.closed_list:
+                    continue
+
+                f_cost = neighbor.cost + self.heuristic(neighbor)
+                heapq.heappush(self.open_list, (f_cost, neighbor))
+
+        return None  # No path found
+
+    def get_path(self, node):
+        """Reconstruct the path from the goal to the start."""
+        path = []
+        while node:
+            path.append((node.x, node.y))
+            node = node.parent
+        return path[::-1]
+
+# Visualization Function
+def visualize_map(obstacles, targetPose, aruco_true_pos, full_path, map_size):
+    """
+    Visualizes the map with obstacles, target fruits, ArUco markers, and the planned path.
+    
+    :param obstacles: List of obstacle objects.
+    :param targetPose: List of target fruit positions.
+    :param aruco_true_pos: Array of ArUco marker positions.
+    :param full_path: List of robot positions along the path.
+    :param map_size: Size of the map for plotting limits.
+    """
+    fig, ax = plt.subplots()
+    ax.set_xlim(-map_size / 2, map_size / 2)
+    ax.set_ylim(-map_size / 2, map_size / 2)
+    ax.set_xlabel('X Position (m)')
+    ax.set_ylabel('Y Position (m)')
+    ax.set_title('Autonomous Fruit Searching Path Planning')
+    ax.set_aspect('equal')
+
+    # Draw obstacles
+    for obstacle in obstacles:
+        circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='gray')
+        ax.add_patch(circle)
+
+    # Highlight target fruits
+    for idx, target in enumerate(targetPose):
+        circle = plt.Circle((target[0], target[1]), 0.1, color='green')
+        ax.add_patch(circle)
+        ax.text(target[0], target[1], f'T{idx+1}', color='white', ha='center', va='center')
+
+    # Highlight ArUco markers
+    for idx, marker in enumerate(aruco_true_pos):
+        circle = plt.Circle((marker[0], marker[1]), 0.05, color='black')
+        ax.add_patch(circle)
+        ax.text(marker[0], marker[1], f'A{idx+1}', color='white', ha='center', va='center')
+
+    # Plot the robot's path
+    if full_path:
+        full_path_np = np.array(full_path)
+        ax.plot(full_path_np[:, 0], full_path_np[:, 1], '-o', color='blue', label='Planned Path')
+
+        # Plot orientation arrows
+        for pos in full_path:
+            x, y, theta = pos
+            dx = 0.1 * math.cos(theta)
+            dy = 0.1 * math.sin(theta)
+            ax.arrow(x, y, dx, dy, head_width=0.05, head_length=0.05, fc='blue', ec='blue')
+
+    ax.legend()
+    plt.grid(True)
+    plt.show()
+
+# Helper Functions (read_search_list, print_target_fruits_pos, rotate_to_point, drive_to_point, get_robot_pose)
+def read_search_list():
+    """Read the search order of the target fruits."""
+    search_list = []
+    with open('M4_prac_shopping_list.txt', 'r') as fd:
+        fruits = fd.readlines()
+
+        for fruit in fruits:
+            search_list.append(fruit.strip())
+
+    return search_list
+
+def print_target_fruits_pos(search_list, fruit_list, fruit_true_pos):
+    """Print out the target fruits' positions in the search order."""
+    print("Search order:")
+    n_fruit = 1
+    target_positions = []
+    for fruit in search_list:
+        for i in range(len(fruit_list)):  # there are 5 targets amongst 10 objects
+            if fruit == fruit_list[i]:
+                print(f'{n_fruit}) {fruit} at [{np.round(fruit_true_pos[i][0], 1)}, {np.round(fruit_true_pos[i][1], 1)}]')
+                target_positions.append(fruit_true_pos[i])
+        n_fruit += 1
+
+    return target_positions
+
+def rotate_to_point(waypoint, robot_pose):
+    """Rotate the robot to face a specific waypoint."""
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
+    fileB = "calibration/param/baseline.txt"
+    baseline = np.loadtxt(fileB, delimiter=',')
+
+    # Calculate the angle to turn
+    xg, yg = waypoint
+    x, y, th = robot_pose
+
+    desired_angle = math.atan2(yg - y, xg - x)
+    current_angle = th
+    angle_difference = desired_angle - current_angle
+
+    # Normalize the angle to be within the range [-pi, pi]
+    while angle_difference > math.pi:
+        angle_difference -= 2 * math.pi
+    while angle_difference <= -math.pi:
+        angle_difference += 2 * math.pi
+
+    wheel_vel = 30  # Rotation speed
+    turn_time = abs(baseline * angle_difference * 0.5 / (scale * wheel_vel))
+
+    print(f"Turning for {turn_time:.2f} seconds to face the waypoint.")
+
+    if angle_difference < 0:
+        lv, rv = ppi.set_velocity([0, -1], turning_tick=wheel_vel, time=turn_time)
+    else:
+        lv, rv = ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
+
+    robot_pose[2] = desired_angle  # Update robot
