@@ -13,7 +13,6 @@ import math
 from obstacles import *
 from operate import Operate
 import random
-import matplotlib.pyplot as plt
 
 # Import SLAM components
 sys.path.insert(0, "{}/slam".format(os.getcwd()))
@@ -111,59 +110,8 @@ class AStar:
             node = node.parent
         return path[::-1]
 
-# Visualization Function
-def visualize_map(obstacles, targetPose, aruco_true_pos, full_path, map_size):
-    """
-    Visualizes the map with obstacles, target fruits, ArUco markers, and the planned path.
-    
-    :param obstacles: List of obstacle objects.
-    :param targetPose: List of target fruit positions.
-    :param aruco_true_pos: Array of ArUco marker positions.
-    :param full_path: List of robot positions along the path.
-    :param map_size: Size of the map for plotting limits.
-    """
-    fig, ax = plt.subplots()
-    ax.set_xlim(-map_size / 2, map_size / 2)
-    ax.set_ylim(-map_size / 2, map_size / 2)
-    ax.set_xlabel('X Position (m)')
-    ax.set_ylabel('Y Position (m)')
-    ax.set_title('Autonomous Fruit Searching Path Planning')
-    ax.set_aspect('equal')
 
-    # Draw obstacles
-    for obstacle in obstacles:
-        circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='gray')
-        ax.add_patch(circle)
-
-    # Highlight target fruits
-    for idx, target in enumerate(targetPose):
-        circle = plt.Circle((target[0], target[1]), 0.1, color='green')
-        ax.add_patch(circle)
-        ax.text(target[0], target[1], f'T{idx+1}', color='white', ha='center', va='center')
-
-    # Highlight ArUco markers
-    for idx, marker in enumerate(aruco_true_pos):
-        circle = plt.Circle((marker[0], marker[1]), 0.05, color='black')
-        ax.add_patch(circle)
-        ax.text(marker[0], marker[1], f'A{idx+1}', color='white', ha='center', va='center')
-
-    # Plot the robot's path
-    if full_path:
-        full_path_np = np.array(full_path)
-        ax.plot(full_path_np[:, 0], full_path_np[:, 1], '-o', color='blue', label='Planned Path')
-
-        # Plot orientation arrows
-        for pos in full_path:
-            x, y, theta = pos
-            dx = 0.1 * math.cos(theta)
-            dy = 0.1 * math.sin(theta)
-            ax.arrow(x, y, dx, dy, head_width=0.05, head_length=0.05, fc='blue', ec='blue')
-
-    ax.legend()
-    plt.grid(True)
-    plt.show()
-
-# Helper Functions (read_search_list, print_target_fruits_pos, rotate_to_point, drive_to_point, get_robot_pose)
+# Helper Functions
 def read_search_list():
     """Read the search order of the target fruits."""
     search_list = []
@@ -220,9 +168,55 @@ def rotate_to_point(waypoint, robot_pose):
     else:
         lv, rv = ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
 
-    robot_pose[2] = desired_angle  # Update robot
+    robot_pose[2] = desired_angle  # Update robot orientation
+    return lv, rv, turn_time
 
-# Main loop with debugging and A* pathfinding (no visualization)
+def drive_to_point(waypoint, robot_pose):
+    """Drive the robot to a specific waypoint."""
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
+    fileB = "calibration/param/baseline.txt"
+    baseline = np.loadtxt(fileB, delimiter=',')
+
+    # Calculate the distance to the waypoint
+    delta_x = waypoint[0] - robot_pose[0]
+    delta_y = waypoint[1] - robot_pose[1]
+    distance = math.sqrt(delta_x ** 2 + delta_y ** 2)
+    wheel_vel = 50  # Driving speed
+    distance_error = distance
+
+    # Calculate drive time
+    try:
+        drive_time = distance / (wheel_vel * scale)
+        if math.isnan(drive_time) or drive_time <= 0:
+            raise ValueError("Invalid drive time calculated.")
+    except Exception as e:
+        print(f"Error calculating drive time: {e}")
+        drive_time = 1  # Set a default drive time
+
+    print(f"Driving for {drive_time:.2f} seconds to reach the waypoint.")
+
+    lv, rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    return lv, rv, drive_time
+
+def get_robot_pose(ekf, robot, lv, rv, dt):
+    """Update the robot's pose using EKF based on velocity and time."""
+    drive_meas = measure.Drive(lv, -rv, dt)
+    img = ppi.get_image_physical()
+    aruco_detector = aruco.aruco_detector(robot)
+    measurement, _ = aruco_detector.detect_marker_positions(img)
+    ekf.predict(drive_meas)
+    if measurement:
+        ekf.update(measurement)
+
+    # Update the robot pose [x, y, theta]
+    state = ekf.get_state_vector()
+    robot_pose = [state[0].item(), state[1].item(), state[2].item()]
+    print(f"Actual pose: {robot_pose}")
+
+    return robot_pose
+
+# Main loop with A* replacing RRT
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Fruit searching")
     parser.add_argument("--map", type=str, default='map.txt')  # change to 'M4_true_map_part.txt' for lv2&3
