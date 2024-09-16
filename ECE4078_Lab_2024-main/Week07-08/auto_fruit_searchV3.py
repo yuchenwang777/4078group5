@@ -417,6 +417,21 @@ def rotate_to_face_goal(goal, robot_pose):
     #return robot_pose
     return lv,rv,turn_time
 
+def generate_intermediate_waypoints(start, end, interval=0.1):
+    """Generate intermediate waypoints between start and end at given interval."""
+    waypoints = []
+    start = np.array(start)
+    end = np.array(end)
+    distance = np.linalg.norm(np.array(end) - np.array(start))
+    num_points = int(distance // interval)
+    for i in range(1, num_points + 1):
+        waypoint = start + (end - start) * (i * interval / distance)
+        waypoints.append(waypoint)
+    # Add the final segment if it is less than the interval
+    if distance % interval != 0:
+        waypoints.append(end)
+    return waypoints
+
 
 
 # main loop
@@ -462,6 +477,7 @@ if __name__ == "__main__":
     # Initialize path list
     full_path = []
     goal_indices = []
+    new_full_path = []
 
 #trying path smoothing so might be a lot faster might have more pose errror though
 # Sequentially navigate to each goal
@@ -474,20 +490,23 @@ if __name__ == "__main__":
                 next_node = path[1]  # Get the next node in the path
                 expected_orientation = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 print(f"expected pose: {next_node,expected_orientation}")
-                lv, rv, dt = rotate_to_point(next_node, current_position)
-                current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
-                lv, rv, dt = drive_to_point(next_node, current_position)
-                current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+                new_full_path.append(current_position[:2])
+                intermediate_waypoints = generate_intermediate_waypoints(current_position[:2],next_node)
+                new_full_path.extend(intermediate_waypoints)
+                #lv, rv, dt = rotate_to_point(next_node, current_position)
+                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
+                #lv, rv, dt = drive_to_point(next_node, current_position)
+                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
 
                 # Check if the robot has deviated significantly from the expected pose
-                if ekf.P[0,0] > 0.1 or ekf.P[1,1] > 0.1:
-                    for i in range(5):
-                        lv, rv = ppi.set_velocity([1, 0], tick=30, time=1)
-                        current_position = get_robot_pose(ekf,robot,lv,rv,1)
+                #if ekf.P[0,0] > 0.1 or ekf.P[1,1] > 0.1:
+                #    for i in range(5):
+                #        lv, rv = ppi.set_velocity([1, 0], tick=30, time=1)
+                #        current_position = get_robot_pose(ekf,robot,lv,rv,1)
 
                 #uncomment these for path testing
-                #current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
-                #current_position[:2] = next_node
+                current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
+                current_position[:2] = next_node
 
                 full_path.append(current_position.copy())
                 if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:
@@ -501,10 +520,10 @@ if __name__ == "__main__":
                 print(f"No path found to goal {goal[:2]} going back to origin")
                 # trace back to origin and start again if cannot find path
                 for node in reversed(full_path):
-                    lv, rv, dt = rotate_to_point(node[:2], current_position)
-                    current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
-                    lv, rv, dt = drive_to_point(node[:2], current_position)
-                    current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+                    #lv, rv, dt = rotate_to_point(node[:2], current_position)
+                    #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
+                    #lv, rv, dt = drive_to_point(node[:2], current_position)
+                    #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
                     print(f"Tracing back to: {node[:2]}")
             # Retry reaching the goal
                 current_position = start
@@ -518,6 +537,12 @@ if __name__ == "__main__":
         #    print(point)
     else:
         print("No full path found.")
+
+            # Ensure all waypoints have the same length (x, y, theta)
+new_full_path = [(point[0], point[1], 0.0) if len(point) == 2 else point for point in new_full_path]
+
+    # Convert to numpy array
+new_full_path = np.array(new_full_path)
 
 # Visualization
 fig, ax = plt.subplots()
@@ -551,12 +576,12 @@ for obstacle in obstacles:
         ax.add_patch(circle)
 
 if len(full_path) > 0:
-    full_path = [(0.0,0.0,0.0)] + full_path
-    full_path =  np.array(full_path)
-    ax.plot(full_path[:, 0], full_path[:, 1], '-o', color='blue')  # Plot the full path as a continuous line
+    new_full_path = [(0.0,0.0,0.0)] + new_full_path
+    new_full_path =  np.array(new_full_path)
+    ax.plot(new_full_path[:, 0], new_full_path[:, 1], '-o', color='blue')  # Plot the full path as a continuous line
 
     # Plot tiny black arrows to visualize orientation
-    for x, y, theta in full_path:
+    for x, y, theta in new_full_path:
         dx = 0.1 * np.cos(theta)  # Scale the arrow length as needed
         dy = 0.1 * np.sin(theta)
         ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')

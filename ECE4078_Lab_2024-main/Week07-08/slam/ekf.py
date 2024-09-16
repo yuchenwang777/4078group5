@@ -129,6 +129,10 @@ class EKF:
 
         # TODO: add your codes here to compute the updated x
         K = self.P@ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
+        #don't update marker positions if they are known
+        ################
+        K[3:,:] = 0 # only for known map delete this line for unknown map
+        ################
         ux = x + K@(z - z_hat)
 
         # LOCATION OF ITEM CHANGE 1: 

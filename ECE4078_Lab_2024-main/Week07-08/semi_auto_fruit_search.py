@@ -13,10 +13,10 @@ import math
 import argparse
 
 # import SLAM components
-# sys.path.insert(0, "{}/slam".format(os.getcwd()))
-# from slam.ekf import EKF
-# from slam.robot import Robot
-# import slam.aruco_detector as aruco
+sys.path.insert(0, "{}/slam".format(os.getcwd()))
+from slam.ekf import EKF
+from slam.robot import Robot
+import slam.aruco_detector as aruco
 
 # import utility functions
 sys.path.insert(0, "util")
@@ -107,7 +107,7 @@ def print_target_fruits_pos(search_list, fruit_list, fruit_true_pos):
 # note that this function requires your camera and wheel calibration parameters from M2, and the "util" folder from M1
 # fully automatic navigation:
 # try developing a path-finding algorithm that produces the waypoints automatically
-def rotate_to_point(waypoint, robot_pose):
+def rotate_to_point(waypoint, robot_pose,ekf,robot):
     # imports camera / wheel calibration parameters 
     fileS = "calibration/param/scale.txt"
     scale = np.loadtxt(fileS, delimiter=',')
@@ -127,30 +127,39 @@ def rotate_to_point(waypoint, robot_pose):
     #print((180/math.pi)*angle)
     desired_angle = np.arctan2(yg - y, xg - x)
     current_angle = th
-    print((180/math.pi)*desired_angle)
     angle_difference = desired_angle - current_angle
-    print((180/math.pi)*angle_difference)
     while angle_difference>np.pi:
         angle_difference-=np.pi*2
     while angle_difference<=-np.pi:
         angle_difference+=np.pi*2
 
     wheel_vel = 30  # tick
-    
-    # Calculate turn time
-    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
-    print(f"Turning for {turn_time:.2f} seconds")
-    robot_pose[2] = desired_angle
-    if angle_difference < 0:
-        print("turning left")
-        ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    else:
-        print("turning right")
-        ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
+    Kp = 0.5 # Proportional gain/ may need to change for better performance, if this works at all
 
-    #drive_to_point(waypoint,)
-    #time.sleep(turn_time)
-    return robot_pose
+    while abs(angle_difference) > 0.05:  # Continue rotating until the angle error is small about 3 degrees can decrease if needed
+        # Calculate the time to turn
+        turn_time = Kp*abs(baseline * angle_difference / (scale * wheel_vel)) 
+
+        # Turn the robot in the correct direction
+        if angle_difference < 0:
+            lv, rv = ppi.set_velocity([0, -1], turning_tick=wheel_vel, time=turn_time)
+        else:
+            lv, rv = ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
+
+        # Update the robot's pose using SLAM
+        current_pose = get_robot_pose(ekf, robot, lv, rv, turn_time)
+        x, y, th = current_pose
+
+        # Recalculate the angle difference
+        desired_angle = np.arctan2(yg - y, xg - x)
+        angle_difference = desired_angle - th
+
+        while angle_difference > np.pi:
+            angle_difference -= np.pi * 2
+        while angle_difference <= -np.pi:
+            angle_difference += np.pi * 2
+    
+    return lv,rv, turn_time
     
     
 
@@ -167,9 +176,12 @@ def drive_to_point(waypoint, robot_pose):
     # Calculate the angle to turn
     delta_x = waypoint[0] - robot_pose[0]
     delta_y = waypoint[1] - robot_pose[1]
+    prev_x = robot_pose[0]
+    prev_y = robot_pose[1]
     # Calculate the distance to the waypoint
     distance = np.sqrt(delta_x ** 2 + delta_y ** 2)
     wheel_vel = 50  # tick
+    distance_error = distance
 
     # Calculate drive time
     try:
@@ -177,27 +189,34 @@ def drive_to_point(waypoint, robot_pose):
         if np.isnan(drive_time) or drive_time <= 0:
             raise ValueError("Invalid drive time calculated.")
     except Exception as e:
-        print(f"Error calculating drive time: {e}")
+        #print(f"Error calculating drive time: {e}")
         drive_time = 1  # Set a default drive time
 
-    print(f"Driving for {drive_time:.2f} seconds")
-    ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-    robot_pose[:2] = waypoint
-    
-    ####################################################
+    #print(f"Driving for {drive_time:.2f} seconds")
+    lv, rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
+    #robot_pose[:2] = waypoint
 
     print(f"Arrived at [{waypoint[0]}, {waypoint[1]}]")
+    #return robot_pose
+    return lv,rv, drive_time
 
-    return robot_pose
 
-
-def get_robot_pose():
+def get_robot_pose(ekf,robot,lv,rv, dt):
     ####################################################
     # TODO: replace with your codes to estimate the pose of the robot
     # We STRONGLY RECOMMEND you to use your SLAM code from M2 here
 
+    drive_meas = measure.Drive(lv, -rv, dt)
+    img = ppi.get_image_physical()
+    aruco_detector = aruco.aruco_detector(robot)
+    measurement, _ = aruco_detector.detect_marker_positions(img)
+    ekf.predict(drive_meas)
+    ekf.update(measurement)
+
     # update the robot pose [x,y,theta]
-    robot_pose = [0.0,0.0,0.0] # replace with your calculation
+    state = ekf.get_state_vector() # replace with your calculation
+    robot_pose = [state[0].item(), state[1].item(), state[2].item()]
+    print(f"Actual pose: {robot_pose}")
     ####################################################
 
     return robot_pose
@@ -218,8 +237,11 @@ def on_click(event):
     # based on the direction of your x/y axis my need to adjust x and y (+/-) to get the correct orientation
     # Invert x-axis to match typical coordinate system
     x = -x
-    robot_pose = rotate_to_point([x, y], robot_pose)
-    robot_pose = drive_to_point([x,y],robot_pose)
+    waypoint = [x,y]
+    lv,rv,dt = rotate_to_point(waypoint, robot_pose,ekf,robot)
+    robot_pose = get_robot_pose(ekf,robot,lv,rv,dt)
+    lv,rv,dt = drive_to_point(waypoint,robot_pose)
+    robot_pose = get_robot_pose(ekf,robot,lv,rv,dt)
     print(f"Clicked coordinates: ({x:.2f}, {y:.2f})")
     
     # Update the robot pose
@@ -334,6 +356,18 @@ if __name__ == "__main__":
     fruits_list, fruits_true_pos, aruco_true_pos = read_true_map(args.map)
     search_list = read_search_list()
     targetPose = print_target_fruits_pos(search_list, fruits_list, fruits_true_pos)
+
+    fileS = "calibration/param/scale.txt"
+    scale = np.loadtxt(fileS, delimiter=',')
+    fileB = "calibration/param/baseline.txt"
+    baseline = np.loadtxt(fileB, delimiter=',')
+    fileK = "calibration/param/intrinsic.txt"
+    camera_matrix = np.loadtxt(fileK, delimiter=',')
+    fileD = "calibration/param/distCoeffs.txt"
+    dist_coeffs = np.loadtxt(fileD, delimiter=',')
+
+    robot = Robot(baseline, scale, camera_matrix, dist_coeffs)
+    ekf = EKF(robot)
 
     waypoint = [0.0,0.0]
     robot_pose = [0.0,0.0,0.0]
