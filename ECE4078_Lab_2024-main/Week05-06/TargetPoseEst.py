@@ -91,11 +91,13 @@ def merge_estimations(target_pose_dict):
     #target_est = target_pose_dict
     #########
     target_est = {}
-    distance_threshold = 0.3
+    distance_threshold = 0.3 
+    #^maximum distance (in meters) that two poses can be apart and 
+    #still be considered as part of the same object
      # Filter out poses outside the valid area
     valid_pose_dict = {key: pose for key, pose in target_pose_dict.items() if -1.5 < pose['x'] < 1.5 and -1.5 < pose['y'] < 1.5}
 
-
+    #poses are grouped by the object type 
     for key, pose in valid_pose_dict.items():
         target_type = key.split('_')[0]
 
@@ -107,6 +109,7 @@ def merge_estimations(target_pose_dict):
     # Debug: Check if poses are being grouped
     print(f"Grouped Target Poses (before merging): {target_est}")
 
+    # can remove - not relevant because we will never be in this case
     final_target_est = {}
     for target_type, poses in target_est.items():
         if len(poses) == 1:
@@ -117,6 +120,9 @@ def merge_estimations(target_pose_dict):
         poses_array = np.array([[pose['x'], pose['y']] for pose in poses])
 
         # Use DBSCAN to cluster poses based on distance
+        #The DBSCAN (Density-Based Spatial Clustering) algorithm is used to group (cluster) 
+        # the poses based on their proximity. DBSCAN clusters points that are within 
+        # the eps distance (distance_threshold), which in this case is 0.3 meters.
         clustering = DBSCAN(eps=distance_threshold, min_samples=1).fit(poses_array)
         labels = clustering.labels_
 
@@ -124,16 +130,29 @@ def merge_estimations(target_pose_dict):
         for cluster_id in set(labels):
             cluster_poses = poses_array[labels == cluster_id]
                     # Filter out clusters with less than 5 pose estimations
+                    # prevents bad detections 
             if len(cluster_poses) < 5:
                 continue
-            centroid = np.mean(cluster_poses, axis=0)
+            # Step 1: Calculate the Z-scores for the cluster poses (both x and y)
+            z_scores = np.abs(stats.zscore(cluster_poses))
+
+            # Step 2: Filter out outliers (Z-score > 2.5)
+            filtered_poses = cluster_poses[(z_scores < 2.5).all(axis=1)]
+
+            # If there are no valid poses after filtering, skip this cluster
+            if len(filtered_poses) == 0:
+                continue
+        
+            # Step 3: Calculate the centroid of the filtered poses
+            centroid = np.mean(filtered_poses, axis=0)
             final_target_est[f"{target_type}_{cluster_id}"] = {'x': centroid[0], 'y': centroid[1]}
 
     return final_target_est
    
 # main loop
 if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))     # get current script directory (TargetPoseEst.py)
+    script_dir = os.path.dirname(os.path.abspath(__file__))     
+    # get current script directory (TargetPoseEst.py)
 
     # read in camera matrix
     fileK = f'{script_dir}/calibration/param/intrinsic.txt'

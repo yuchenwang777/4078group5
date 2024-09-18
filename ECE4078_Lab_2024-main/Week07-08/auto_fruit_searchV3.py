@@ -452,7 +452,7 @@ if __name__ == "__main__":
                 position_error = np.linalg.norm(np.array(current_position[:2]) - np.array(intermediate_waypoints[0]))  
 
                 #correction step
-                while position_error > 0.05:
+                while position_error > 0.03:
                     print(f"Correcting position error: {position_error}")
                     lv, rv, dt, current_position = rotate_to_point(intermediate_waypoints[0], current_position)
                     lv,rv,dt,current_position = drive_to_point(intermediate_waypoints[0],current_position)
