@@ -1,6 +1,3 @@
-# M4 - Autonomous fruit searching
-
-# basic python packages
 import sys, os
 import numpy as np
 import json
@@ -341,54 +338,58 @@ if __name__ == "__main__":
     else:
         print("No full path found.")
 
-    # Visualization code (omitted for brevity)
 
-# Visualization
-fig, ax = plt.subplots()
-ax.set_xlim(-map_size / 2, map_size / 2)
-ax.set_ylim(-map_size / 2, map_size / 2)
+    # Visualization
+    fig, ax = plt.subplots()
+    ax.set_xlim(-map_size / 2, map_size / 2)
+    ax.set_ylim(-map_size / 2, map_size / 2)
 
+    for obstacle in obstacles:
+        if any(np.allclose(obstacle.center, target[:2], atol=0.1) for target in targetPose):
+            circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='green')
+            ax.add_patch(circle)
+            outline = plt.Circle((obstacle.center[0], obstacle.center[1]), 0.5, color='green', fill=False, linestyle='--')
+            ax.add_patch(outline)
+            for j, target in enumerate(targetPose):
+                if np.allclose(obstacle.center, target[:2], atol=0.1):
+                    ax.text(obstacle.center[0], obstacle.center[1], str(j + 1), color='white', ha='center', va='center')
+                    break
+        elif any(np.allclose(obstacle.center, marker[:2], atol=0.1) for marker in aruco_true_pos):
+            circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='black')
+            ax.add_patch(circle)
+            for i, marker in enumerate(aruco_true_pos):
+                if np.allclose(obstacle.center, marker[:2], atol=0.1):
+                    ax.text(obstacle.center[0], obstacle.center[1], str(i+1), color='white', ha='center', va='center')
+                    break
+        else:
+            circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='gray')
+            ax.add_patch(circle)
 
-# Draw obstacles
-for obstacle in obstacles:
-    if any(np.allclose(obstacle.center, target[:2], atol=0.1) for target in targetPose):
-        circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='green')
-        ax.add_patch(circle)
-        # Draw 0.5m radius outline
-        outline = plt.Circle((obstacle.center[0], obstacle.center[1]), 0.5, color='green', fill=False, linestyle='--')
-        ax.add_patch(outline)
-        # Add target number
-        for j, target in enumerate(targetPose):
-            if np.allclose(obstacle.center, target[:2], atol=0.1):
-                ax.text(obstacle.center[0], obstacle.center[1], str(j + 1), color='white', ha='center', va='center')
-                break
-    elif any(np.allclose(obstacle.center, marker[:2], atol=0.1) for marker in aruco_true_pos):
-        circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='black')
-        ax.add_patch(circle)
-        # Add ArUco marker number
-        for i, marker in enumerate(aruco_true_pos):
-            if np.allclose(obstacle.center, marker[:2], atol=0.1):
-                ax.text(obstacle.center[0], obstacle.center[1], str(i+1), color='white', ha='center', va='center')
-                break
-    else:
-        circle = plt.Circle((obstacle.center[0], obstacle.center[1]), obstacle.radius, color='gray')
-        ax.add_patch(circle)
+    if len(full_path) > 0:
+        colors = ['red', 'green', 'orange', 'purple', 'cyan']
+        full_path = np.array(full_path)
+        segment_start = 0
+        for i, goal_index in enumerate(goal_indices):
+            segment_end = goal_index
+            ax.plot(full_path[segment_start:segment_end, 0], full_path[segment_start:segment_end, 1], '-o', color=colors[i % len(colors)])
 
-# Draw full path with different colors for each segment
-if len(full_path) > 0:
-    colors = ['red', 'blue', 'orange', 'purple', 'cyan']  # List of colors
-    full_path = np.array(full_path)
-    segment_start = 0
-    for i, goal in enumerate(targetPose):
-        # Calculate distances to the goal
-        distances = np.linalg.norm(full_path - goal[:2], axis=1)
-        segment_end = np.argmin(distances) + 1
-        ax.plot(full_path[segment_start:segment_end, 0], full_path[segment_start:segment_end, 1], '-o', color=colors[i % len(colors)])
-        segment_start = segment_end
+            for j in range(segment_start, segment_end):
+                x, y, theta = full_path[j]
+                dx = 0.1 * np.cos(theta)
+                dy = 0.1 * np.sin(theta)
+                ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
 
-plt.gca().invert_xaxis()  # Invert x-axis
-plt.gca().invert_yaxis()  # Invert y-axis
-plt.show()
+            segment_start = segment_end
 
-    
+        if segment_start < len(full_path):
+            ax.plot(full_path[segment_start:, 0], full_path[segment_start:, 1], '-o', color=colors[len(goal_indices) % len(colors)])
 
+            for j in range(segment_start, len(full_path)):
+                x, y, theta = full_path[j]
+                dx = 0.1 * np.cos(theta)
+                dy = 0.1 * np.sin(theta)
+                ax.quiver(x, y, dx, dy, angles='xy', scale_units='xy', scale=1, color='black')
+
+    plt.gca().invert_xaxis()
+    plt.gca().invert_yaxis()
+    plt.show()

@@ -1,4 +1,4 @@
-=# M4 - Autonomous fruit searching
+# M4 - Autonomous fruit searching
 
 # basic python packages
 import sys, os
