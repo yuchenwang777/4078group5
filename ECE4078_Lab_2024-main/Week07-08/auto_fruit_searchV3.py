@@ -39,7 +39,7 @@ class RRTNode:
         self.parent = parent
 
 class RRT:
-    def __init__(self, start, goal, obstacles, map_size, step_size=0.1, goal_threshold=0.3, max_iter=1000, goal_bias=0.2):
+    def __init__(self, start, goal, obstacles, map_size, step_size=0.05, goal_threshold=0.3, max_iter=1000, goal_bias=0.3):
         self.start = RRTNode(start[0], start[1])
         self.goal = RRTNode(goal[0], goal[1])
         self.obstacles = obstacles
@@ -135,7 +135,7 @@ class RRT:
 
 # genrating the obstacles taking into account size of robot and obstacle size
 # just making markers cirlces for now as im lazy can change to rectangles later if we want
-def generate_circular_obstacles(coordinates , robot_diameter=0.16, obstacle_diameter=0.18):
+def generate_circular_obstacles(coordinates , robot_diameter=0.16, obstacle_diameter=0.24):
     """
     Generates a list of Circle obstacles from given coordinates and radii, adjusted for robot and obstacle diameters.
 
@@ -241,18 +241,15 @@ def rotate_to_point(waypoint, robot_pose):
     scale = np.loadtxt(fileS, delimiter=',')
     fileB = "calibration/param/baseline.txt"
     baseline = np.loadtxt(fileB, delimiter=',')
-    #(waypoint)
-    #print(robot_pose[0], robot_pose[1],(180/math.pi)*robot_pose[2])
     
     ####################################################
     # Calculate the angle to turn
     xg, yg = waypoint
     x,y,th = robot_pose
+    lv,rv,turn_time = 0,0,0
     
     
     # Normalize the angle to be within the range [-pi, pi]
-    #angle = (angle + np.pi) % (2 * np.pi) - np.pi
-    #print((180/math.pi)*angle)
     desired_angle = np.arctan2(yg - y, xg - x)
     current_angle = th
     angle_difference = desired_angle - current_angle
@@ -262,28 +259,39 @@ def rotate_to_point(waypoint, robot_pose):
         angle_difference+=np.pi*2
 
     wheel_vel = 30  # tick
-    angle_error = angle_difference
+    Kp = 0.5 # Proportional gain/ may need to change for better performance, if this works at all
 
-    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
-    #print(f"Turning for {turn_time:.2f} seconds")
-    #robot_pose[2] = desired_angle
-    if angle_difference < 0:
-        lv, rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    else:
-        lv, rv = ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-    
-    # Calculate turn time
-    #while abs(angle_error) > 0.05:
-    #    turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
-    #    print(f"Turning for {turn_time:.2f} seconds")
-    #    if angle_error < 0:
-    #        lv,rv= ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    #    else:
-    #        lv,rv= ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-    #    robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
-    #    angle_error = desired_angle - robot_pose[2]
-    return lv,rv, turn_time
-    #return robot_pose
+    while abs(angle_difference) > 0.001:  # Continue rotating until the angle error is small about 3 degrees can decrease if needed
+        # Calculate the time to turn
+        turn_time = Kp*abs(baseline * angle_difference / (scale * wheel_vel)) 
+
+        # Turn the robot in the correct direction
+        if angle_difference < 0:
+            lv, rv = ppi.set_velocity([0, -1], turning_tick=wheel_vel, time=turn_time)
+        else:
+            lv, rv = ppi.set_velocity([0, 1], turning_tick=wheel_vel, time=turn_time)
+
+        # Update the robot's pose using SLAM
+        current_pose = get_robot_pose(lv, rv, turn_time)
+        x, y, th = current_pose
+
+        while th > np.pi:
+            th -= np.pi * 2
+        while th <= -np.pi:
+            th += np.pi * 2
+
+        # Recalculate the angle difference
+        desired_angle = np.arctan2(yg - y, xg - x)
+        angle_difference = desired_angle - th
+
+        while angle_difference > np.pi:
+            angle_difference -= np.pi * 2
+        while angle_difference <= -np.pi:
+            angle_difference += np.pi * 2
+
+    print(f"expected angle: {(180/math.pi)*desired_angle}\nActual angle: {(180/math.pi)*th}")
+    current_pose = [x,y,th]
+    return lv,rv, turn_time, current_pose
     
     
 
@@ -304,8 +312,9 @@ def drive_to_point(waypoint, robot_pose):
     prev_y = robot_pose[1]
     # Calculate the distance to the waypoint
     distance = np.sqrt(delta_x ** 2 + delta_y ** 2)
-    wheel_vel = 50  # tick
+    wheel_vel = 30  # tick
     distance_error = distance
+    lv,rv,drive_time = 0,0,0
 
     # Calculate drive time
     try:
@@ -319,30 +328,14 @@ def drive_to_point(waypoint, robot_pose):
     #print(f"Driving for {drive_time:.2f} seconds")
     lv, rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
     #robot_pose[:2] = waypoint
-    
-    
- 
-    #while abs(distance_error) > 0.01:
-    #    drive_time = abs(distance_error) / (wheel_vel*scale)
-    #    print(distance_error)
-    #    print(f"Driving for {drive_time:.2f} seconds")
-    #    if distance_error < 0:
-    #        lv,rv = ppi.set_velocity([1, 0], tick=wheel_vel, time=drive_time)
-    #    else:
-    #        lv,rv = ppi.set_velocity([-1, 0], tick=wheel_vel, time=drive_time)
-    # maybe delete this later
-    ####################################################
-        #robot_pose = get_robot_pose(ekf,robot,lv,rv,drive_time)
-        #distance_error = np.sqrt((prev_x - robot_pose[0]) ** 2 + (prev_y - robot_pose[1]) ** 2) - np.sqrt(delta_x**2 + delta_y**2)
-    
-    ####################################################
+    current_pose = get_robot_pose(lv,rv, drive_time)
 
-    print(f"Arrived at [{waypoint[0]}, {waypoint[1]}]")
+    print(f"Expected waypoint [{waypoint[0]}, {waypoint[1]}]\nActual waypoint [{current_pose[0]}, {current_pose[1]}]")
     #return robot_pose
-    return lv,rv, drive_time
+    return lv,rv, drive_time, current_pose
 
 
-def get_robot_pose(ekf,robot,lv,rv, dt):
+def get_robot_pose(lv,rv, dt):
     ####################################################
     # TODO: replace with your codes to estimate the pose of the robot
     # We STRONGLY RECOMMEND you to use your SLAM code from M2 here
@@ -357,67 +350,13 @@ def get_robot_pose(ekf,robot,lv,rv, dt):
     # update the robot pose [x,y,theta]
     state = ekf.get_state_vector() # replace with your calculation
     robot_pose = [state[0].item(), state[1].item(), state[2].item()]
-    print(f"Actual pose: {robot_pose}")
+   # print(f"Actual pose: {robot_pose}")
     ####################################################
 
     return robot_pose
 
-def rotate_to_face_goal(goal, robot_pose):
-    # imports camera / wheel calibration parameters 
-    fileS = "calibration/param/scale.txt"
-    scale = np.loadtxt(fileS, delimiter=',')
-    fileB = "calibration/param/baseline.txt"
-    baseline = np.loadtxt(fileB, delimiter=',')
-    #(waypoint)
-    #print(robot_pose[0], robot_pose[1],(180/math.pi)*robot_pose[2])
-    
-    ####################################################
-    # Calculate the angle to turn
-    xg, yg = goal
-    x,y,th = robot_pose
-    
-    
-    # Normalize the angle to be within the range [-pi, pi]
-    #angle = (angle + np.pi) % (2 * np.pi) - np.pi
-    #print((180/math.pi)*angle)
-    desired_angle = np.arctan2(yg - y, xg - x)
-    current_angle = th
-    print((180/math.pi)*desired_angle)
-    angle_difference = desired_angle - current_angle
-    print((180/math.pi)*angle_difference)
-    while angle_difference>np.pi:
-        angle_difference-=np.pi*2
-    while angle_difference<=-np.pi:
-        angle_difference+=np.pi*2
 
-    wheel_vel = 30  # tick
-    angle_error = angle_difference
-
-    turn_time=abs(baseline*angle_difference*0.5/(scale*wheel_vel))
-    print(f"Turning for {turn_time:.2f} seconds")
-    robot_pose[2] = desired_angle
-    if angle_difference < 0:
-        lv,rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    else:
-        lv,rv = ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-    
-    # Calculate turn time
-    #while abs(angle_error) > 0.05:
-    #    turn_time=abs(baseline*angle_error*0.5/(scale*wheel_vel))
-    #    print(f"Turning for {turn_time:.2f} seconds")
-    #    if angle_error < 0:
-    #        lv,rv = ppi.set_velocity([0, -1],turning_tick=wheel_vel, time=turn_time)
-    #    else:
-    #        lv,rv =ppi.set_velocity([0, 1],turning_tick=wheel_vel, time=turn_time)
-    #    robot_pose = get_robot_pose(ekf,robot,lv,rv,turn_time)
-    #    angle_error = desired_angle - robot_pose[2]
-    
-    # Wait for 2 seconds
-    time.sleep(4)
-    #return robot_pose
-    return lv,rv,turn_time
-
-def generate_intermediate_waypoints(start, end, interval=0.1):
+def generate_intermediate_waypoints(start, end, interval=0.05):
     """Generate intermediate waypoints between start and end at given interval."""
     waypoints = []
     start = np.array(start)
@@ -471,7 +410,8 @@ if __name__ == "__main__":
     # Generate obstacles
     obstacles = generate_circular_obstacles(combined_positions)
 
-    start = [0.0, 0.0,0.0]
+    #start = [0.0, 0.0,0.0]
+    start = get_robot_pose(0,0,0)
     map_size = 2.7 #should change to about 2.6 as robot cannot touch line
 
     # Initialize path list
@@ -490,13 +430,37 @@ if __name__ == "__main__":
                 next_node = path[1]  # Get the next node in the path
                 expected_orientation = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 print(f"expected pose: {next_node,expected_orientation}")
+                #lv, rv, dt, current_angle = rotate_to_point(next_node, current_position,ekf,robot)
+                #lv,rv,dt,current_point = drive_to_point(next_node,current_position)
+                #current_position = current_point + [current_angle]
+                
+                #print(f'Acutal positon {current_position}, actual angle {current_angle}')
+
                 new_full_path.append(current_position[:2])
                 intermediate_waypoints = generate_intermediate_waypoints(current_position[:2],next_node)
                 new_full_path.extend(intermediate_waypoints)
-                #lv, rv, dt = rotate_to_point(next_node, current_position)
-                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
-                #lv, rv, dt = drive_to_point(next_node, current_position)
-                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+
+                #trying to split segemrnts into 10cm intervals, trying to reduce error
+                #for i in range(len(intermediate_waypoints)):
+                #    lv, rv, dt, current_angle = rotate_to_point(intermediate_waypoints[i], current_position,ekf,robot)
+                #    lv,rv,dt,current_point = drive_to_point(intermediate_waypoints[i],current_position,ekf,robot)
+                #    current_position = current_point + [current_angle]
+                lv, rv, dt, current_position = rotate_to_point(intermediate_waypoints[0], current_position)
+                lv,rv,dt,current_position = drive_to_point(intermediate_waypoints[0],current_position)
+                #current_position = current_point + [current_angle]
+                print(f'Acutal positon {current_position}')  
+                position_error = np.linalg.norm(np.array(current_position[:2]) - np.array(intermediate_waypoints[0]))  
+
+                #correction step
+                while position_error > 0.05:
+                    print(f"Correcting position error: {position_error}")
+                    lv, rv, dt, current_position = rotate_to_point(intermediate_waypoints[0], current_position)
+                    lv,rv,dt,current_position = drive_to_point(intermediate_waypoints[0],current_position)
+                    #current_position = current_point + [current_angle]
+                    print(f'Acutal positon {current_position}')
+                    position_error = np.linalg.norm(np.array(current_position[:2]) - np.array(intermediate_waypoints[0]))  
+
+
 
                 # Check if the robot has deviated significantly from the expected pose
                 #if ekf.P[0,0] > 0.1 or ekf.P[1,1] > 0.1:
@@ -505,14 +469,14 @@ if __name__ == "__main__":
                 #        current_position = get_robot_pose(ekf,robot,lv,rv,1)
 
                 #uncomment these for path testing
-                current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
-                current_position[:2] = next_node
+                #current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
+                #current_position[:2] = next_node
 
                 full_path.append(current_position.copy())
                 if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:
                     print(f"Reached goal at coordinates: {goal[:2]}")
                     #lv,rv,dt=rotate_to_face_goal(goal, current_position)
-                    time.sleep(3)
+                    time.sleep(2)
                     #current_position = get_robot_pose(ekf,robot,lv,rv,dt)
                     goal_indices.append(len(full_path)) 
                     break
