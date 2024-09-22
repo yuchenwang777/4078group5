@@ -5,11 +5,12 @@ import os
 import ast
 import cv2
 from YOLO.detector import Detector
+from sklearn.cluster import DBSCAN
 
 
 # list of target fruits and vegs types
 # Make sure the names are the same as the ones used in your YOLO model
-TARGET_TYPES = ['Pear', 'Lemon', 'Lime', 'Tomato', 'Capsicum', 'Potato', 'Pumpkin', 'Garlic']
+TARGET_TYPES = ['pear', 'lemon', 'lime', 'tomato', 'capsicum', 'potato', 'pumpkin', 'garlic']
 
 
 def estimate_pose(camera_matrix, obj_info, robot_pose):
@@ -64,11 +65,13 @@ def estimate_pose(camera_matrix, obj_info, robot_pose):
     #print(f'relative_pose: {relative_pose}')
 
     # location of object in the world frame using rotation matrix
-    delta_x_world = x_relative * np.cos(ang) - y_relative * np.sin(ang)
-    delta_y_world = x_relative * np.sin(ang) + y_relative * np.cos(ang)
+    delta_x_world = x_relative * np.cos(robot_pose[2]) - y_relative * np.sin(robot_pose[2])
+    delta_y_world = x_relative * np.sin(robot_pose[2]) + y_relative * np.cos(robot_pose[2])
     # add robot pose with delta target pose
     target_pose = {'y': (robot_pose[1]+delta_y_world)[0],
                    'x': (robot_pose[0]+delta_x_world)[0]}
+    #print(f'delta_x_world: {delta_x_world}, delta_y_world: {delta_y_world}')
+    #print(f'target_pose: {target_pose}')
 
     return target_pose
 
@@ -82,37 +85,65 @@ def merge_estimations(target_pose_dict):
     output:
         target_est: dict, target pose estimations after merging
     """
-    target_est = {}
 
     ######### Replace with your codes #########
     # TODO: replace it with a solution to merge the multiple occurrences of the same class type (e.g., by a distance threshold)
-    
-    # Setting a distance threshold (radius around fruit) below which to merge fruit observations
-    distance_threshold = 0.13
-    for target_key, target_pose in target_pose_dict.items():
-        target_type, occurrence = target_key.split('_')
-        if target_type in target_est:
-            # Calculate the distance between the current target and the merged target
-            distance = np.sqrt((target_pose['x'] - target_est[f'{target_type}_{occurrence}']['x'])**2 +
-                               (target_pose['y'] - target_est[f'{target_type}_{occurrence}']['y'])**2)
-            # If the distance is within the threshold, merge the targets by averaging their positions
-            if distance < distance_threshold:
-                target_est[f'{target_type}_{occurrence}']['x'] = (target_pose['x'] + target_est[f'{target_type}_{occurrence}']['x']) / 2
-                target_est[f'{target_type}_{occurrence}']['y'] = (target_pose['y'] + target_est[f'{target_type}_{occurrence}']['y']) / 2
-            else:
-                target_est[f'{target_type}_{occurrence}'] = target_pose
-        else:
-            target_est[f'{target_type}_{occurrence}'] = target_pose
+    #target_est = target_pose_dict
+    #########
+    target_est = {}
+    distance_threshold = 0.3
+     # Filter out poses outside the valid area
+    valid_pose_dict = {key: pose for key, pose in target_pose_dict.items() if -1.5 < pose['x'] < 1.5 and -1.5 < pose['y'] < 1.5}
 
-    return target_est
 
+    for key, pose in valid_pose_dict.items():
+        target_type = key.split('_')[0]
+
+        if target_type not in target_est:
+            target_est[target_type] = []
+
+        target_est[target_type].append(pose)
+
+    # Debug: Check if poses are being grouped
+    print(f"Grouped Target Poses (before merging): {target_est}")
+
+    final_target_est = {}
+    for target_type, poses in target_est.items():
+        if len(poses) == 1:
+            final_target_est[f"{target_type}_1"] = poses[0]
+            continue
+
+        # Convert list of dicts to numpy array
+        poses_array = np.array([[pose['x'], pose['y']] for pose in poses])
+
+        # Use DBSCAN to cluster poses based on distance
+        clustering = DBSCAN(eps=distance_threshold, min_samples=1).fit(poses_array)
+        labels = clustering.labels_
+
+        # Merge poses within each cluster
+        for cluster_id in set(labels):
+            cluster_poses = poses_array[labels == cluster_id]
+                    # Filter out clusters with less than 5 pose estimations
+            if len(cluster_poses) < 5:
+                continue
+            centroid = np.mean(cluster_poses, axis=0)
+            final_target_est[f"{target_type}_{cluster_id}"] = {'x': centroid[0], 'y': centroid[1]}
+
+    return final_target_est
+   
 # main loop
 if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))    
+    script_dir = os.path.dirname(os.path.abspath(__file__))     # get current script directory (TargetPoseEst.py)
+
+    # read in camera matrix
     fileK = f'{script_dir}/calibration/param/intrinsic.txt'
     camera_matrix = np.loadtxt(fileK, delimiter=',')
+
+    # init YOLO model
     model_path = f'{script_dir}/YOLO/model/yolov8_model.pt'
     yolo = Detector(model_path)
+
+    # create a dictionary of all the saved images with their corresponding robot pose
     image_poses = {}
     with open(f'{script_dir}/lab_output/images.txt') as fp:
         for line in fp.readlines():
@@ -125,20 +156,23 @@ if __name__ == "__main__":
     for image_path in image_poses.keys():
         input_image = cv2.imread(image_path)
         bounding_boxes, bbox_img = yolo.detect_single_image(input_image)
+        # cv2.imshow('bbox', bbox_img)
+        # cv2.waitKey(0)
         robot_pose = image_poses[image_path]
 
         for detection in bounding_boxes:
+            # count the occurrence of each target type
             occurrence = detected_type_list.count(detection[0])
             target_pose_dict[f'{detection[0]}_{occurrence}'] = estimate_pose(camera_matrix, detection, robot_pose)
+
             detected_type_list.append(detection[0])
 
+    # merge the estimations of the targets so that there are at most 3 estimations of each target type
     target_est = {}
     target_est = merge_estimations(target_pose_dict)
-
-    # Convert dictionary keys to lowercase before saving
-    lower = {k.lower(): v for k, v in target_est.items()}
-    print(lower)
+    print(target_est)
+    # save target pose estimations
     with open(f'{script_dir}/lab_output/targets.txt', 'w') as fo:
-        json.dump(lower, fo, separators=(',',':'))
+        json.dump(target_est, fo, indent=4)
 
     print('Estimations saved!')

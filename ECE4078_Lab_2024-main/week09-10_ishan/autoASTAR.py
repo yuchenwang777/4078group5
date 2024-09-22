@@ -559,7 +559,7 @@ if __name__ == "__main__":
     while start:
         grid_precision = 50
         occupancy_grid = create_occupancy_grid(grid_precision, fruit_true_pos, aruco_true_pos)
-        for search_index in range(len(search_list)-1):
+        for search_index in range(len(search_list)+1):
             pos = operate.get_robot_pose()
             print("Current position:", pos)
             path, fruit_x, fruit_y = find_path_to_fruit(pos, search_list, search_index, fruit_list, fruit_true_pos, aruco_true_pos, grid_precision)
