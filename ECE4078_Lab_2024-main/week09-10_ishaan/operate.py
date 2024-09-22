@@ -64,7 +64,7 @@ class Operate:
         self.notification = 'Press ENTER to start SLAM'
         self.pred_notifier = False
         # a 5min timer
-        self.count_down = 300
+        self.count_down = 600
         self.start_time = time.time()
         self.control_clock = time.time()
         # initialise images

@@ -4,7 +4,7 @@ import cv2
 import math
 import pygame
 
-class EKF:
+class EKF: 
     # Implementation of an EKF for SLAM
     # The state is ordered as [x; y; theta; l1x; l1y; ...; lnx; lny]
 
@@ -87,17 +87,18 @@ class EKF:
     # the prediction step of EKF
     def predict(self, raw_drive_meas):
 
-        A = self.state_transition(raw_drive_meas) #x', y', theta', 1 ... n (length of landmarks)
-        x = self.get_state_vector() # x, y, theta, landmarks...
-        
-        Q = self.predict_covariance(raw_drive_meas) #Sigma_Q
-        
-        #add this line to self update the robot state
+        if np.all(raw_drive_meas==0): 
+            return
+
+        F = self.state_transition(raw_drive_meas) # F = A in our workshop slides 
+        x = self.get_state_vector()
+
+        # TODO: add your codes here to complete the prediction step
         self.robot.drive(raw_drive_meas)
-        #P is Sigma_M
-        P = self.P
-        P_bar = A @ P @ A.T + Q
-        self.P = P_bar
+        Q = self.predict_covariance(raw_drive_meas)
+        self.P = F @ self.P @ F.T + Q
+
+
 
     # the update step of EKF
     def update(self, measurements):
@@ -122,19 +123,16 @@ class EKF:
         x = self.get_state_vector()
 
         # TODO: add your codes here to compute the updated x
+        K = self.P@ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
+        ux = x + K@(z - z_hat)
 
-        C = H
-        # 3. Compute Kalman Gain
-        K = self.P @ C.T @ np.linalg.pinv(C@self.P@C.T+R)
-        # 4. Correct state
-        corrected_x = x + K @ (z - z_hat)
-        # 5. Correct covariance
-        corrected_P = (np.eye(K.shape[0])-K@C)@self.P
+        # LOCATION OF ITEM CHANGE 1: 
+        #self.P = (np.eye(x.shape[0])-K@H)@self.P
+        self.P = (np.eye(len(K))-K@H)@self.P
 
-        # Save corrected values
-        self.set_state_vector(corrected_x)
-        self.P = corrected_P
-        
+        self.set_state_vector(ux)
+
+
 
     def state_transition(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
@@ -145,7 +143,14 @@ class EKF:
     def predict_covariance(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
         Q = np.zeros((n,n))
-        Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.001*np.eye(3) # Maybe check addition
+       
+       ##LOCATION OF ITEM CHANGE 2: 
+       # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+        if not np.all(raw_drive_meas ==0 ):
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.005*np.eye(3)
+        else:
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
+        #have a go changing introduced noise/ tuning parameter 
         return Q
 
     def add_landmarks(self, measurements):
@@ -173,15 +178,11 @@ class EKF:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
+            
 
-    def add_fix_landmarks(self, value, x, y):
-        self.markers = np.concatenate((self.markers, np.array([[x],[y]])), axis=1)
-        self.taglist.append(int(value))
-        self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
-        self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
-        self.P[-2,-2] = 1e-20
-        self.P[-1,-1] = 1e-20
-
+    ##########################################
+    ##########################################
+    ##########################################
 
     @staticmethod
     def umeyama(from_points, to_points):

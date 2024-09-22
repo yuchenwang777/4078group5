@@ -77,16 +77,13 @@ class Robot:
         th = self.state[2]
         
         # TODO: add your codes here to compute DFx using lin_vel, ang_vel, dt, and th
-        if ang_vel ==0: 
-            DFx[0,2]= -np.sin(th.item()) * lin_vel * dt
-            DFx[1,2]=  np.cos(th.item()) * lin_vel * dt
-        else: 
-            R= lin_vel/ang_vel
-            next_th = th + ang_vel*dt
-           
-            DFx[0,2]= R* (-np.cos(th.item())+np.cos(next_th.item()))
-            DFx[1,2]= R* (-np.sin(th.item())+np.sin(next_th.item()))
-
+        if ang_vel==0:
+            DFx[0,2] = -lin_vel*np.sin(th)*dt
+            DFx[1,2] = lin_vel*np.cos(th)*dt
+        else:
+            R=lin_vel/ang_vel
+            DFx[0,2] = -R*np.cos(th)
+            DFx[1,2] = -R*np.sin(th)
         return DFx
 
     def derivative_measure(self, markers, idx_list):
@@ -103,20 +100,13 @@ class Robot:
 
         for i in range(n//2):
             j = idx_list[i]
-            # i identifies which measurement to differentiate.
-            # j identifies the marker that i corresponds to.
-
             lmj_inertial = markers[:,j:j+1]
-            # lmj_bff = Rot_theta.T @ (lmj_inertial - robot_xy)
-
             # robot xy DH
             DH[2*i:2*i+2,0:2] = - Rot_theta.T
             # robot theta DH
             DH[2*i:2*i+2, 2:3] = DRot_theta.T @ (lmj_inertial - robot_xy)
             # lm xy DH
             DH[2*i:2*i+2, 3+2*j:3+2*j+2] = Rot_theta.T
-
-            # print(DH[i:i+2,:])
 
         return DH
     
@@ -132,22 +122,18 @@ class Robot:
 
         # Derivative of x,y,theta w.r.t. lin_vel, ang_vel
         Jac2 = np.zeros((3,2))
-        
         # TODO: add your codes here to compute Jac2 using lin_vel, ang_vel, dt, th, and th2
+        if ang_vel==0:
+            Jac2[0,0] = np.array(np.cos(th)*dt)
+            Jac2[1,0] = np.array(np.sin(th)*dt)
+            Jac2[2,1] = np.array(dt)
+        else:           
+            Jac2[0,0] = np.array(-np.sin(th)/ang_vel+np.sin(th2)/ang_vel)
+            Jac2[0,1] = np.array(lin_vel/(ang_vel**2)*(np.sin(th)-np.sin(th2)))
+            Jac2[1,0] = np.array(np.cos(th)/ang_vel-np.cos(th2)/ang_vel)
+            Jac2[1,1] = np.array(lin_vel/(ang_vel**2)*(-np.cos(th)+np.cos(th2)))
+            Jac2[2,1] = np.array(dt)
 
-        if ang_vel == 0: 
-            Jac2[0,0] = np.cos(th.item())*dt
-            Jac2[1,0] = np.sin(th.item())*dt
-        else: 
-            Jac2[0,0] = (1/ang_vel) * (-np.sin(th.item())+np.sin(th2.item())) #check sign 
-            Jac2[0,1] = (lin_vel/ang_vel**2)*(np.sin(th.item())-np.sin(th2.item()))+((lin_vel/ang_vel)*np.cos(th2.item())*dt)
-
-            Jac2[1,0] = (1/ang_vel) * (np.cos(th.item())-np.cos(th2.item()))
-            Jac2[1,1] = (lin_vel/ang_vel**2)*(-np.cos(th.item())+np.cos(th2.item()))+((lin_vel/ang_vel)*np.sin(th2.item())*dt)
-
-            Jac2[2,1] = dt
-            # changes made 
-            
         # Derivative of x,y,theta w.r.t. left_speed, right_speed
         Jac = Jac2 @ Jac1
 
