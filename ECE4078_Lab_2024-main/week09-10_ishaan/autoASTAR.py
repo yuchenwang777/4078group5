@@ -64,7 +64,7 @@ class Operate:
         self.notification = 'Press ENTER to start SLAM'
         self.pred_notifier = False
         # a 5min timer
-        self.count_down = 300
+        self.count_down = 600
         self.start_time = time.time()
         self.control_clock = time.time()
         # initialise images
@@ -277,7 +277,7 @@ class Operate:
         robot_pos = self.get_robot_pose()[0:2]
         goal_pos = self.target
         distance = np.sum(np.square(goal_pos-robot_pos))
-        if distance <= 0.25:
+        if distance <= 0.3:
             return True
         return False
     

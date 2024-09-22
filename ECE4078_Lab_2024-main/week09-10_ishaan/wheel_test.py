@@ -21,7 +21,7 @@ class WheelTest:
 
         self.ppi = PenguinPi(args.ip,args.port)
 
-    def testDrive(self, ticks=20, dist=1):
+    def testDrive(self, ticks=50, dist=1):
         self.drive_setpoint.append(dist)
         dt = dist/(ticks*self.scale)
         print("driving for ", dt)
@@ -29,7 +29,7 @@ class WheelTest:
         actual = float(input('Please enter the actual distance drove (m)'))
         self.drive_actual.append(actual)
 
-    def testTurn(self, turning_ticks=5, theta=2*np.pi):
+    def testTurn(self, turning_ticks=20, theta=2*np.pi):
         self.turn_setpoint.append(theta)
         dt = (theta*self.baseline)/(2*self.scale*turning_ticks)
         print("turning for ", dt)

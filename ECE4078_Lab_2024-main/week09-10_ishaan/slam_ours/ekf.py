@@ -147,7 +147,10 @@ class EKF:
        ##LOCATION OF ITEM CHANGE 2: 
        # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
         if not np.all(raw_drive_meas ==0 ):
-            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.005*np.eye(3)
+            if (raw_drive_meas[1] < 0):
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.00006*np.eye(3)
+            else:
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.00001*np.eye(3)
         else:
             Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
         #have a go changing introduced noise/ tuning parameter 

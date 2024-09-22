@@ -145,7 +145,17 @@ class EKF:
     def predict_covariance(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
         Q = np.zeros((n,n))
-        Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.001*np.eye(3) # Maybe check addition
+       
+       ##LOCATION OF ITEM CHANGE 2: 
+       # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+        if not np.all(raw_drive_meas ==0 ):
+            if (raw_drive_meas.right_speed < 0):
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.0006*np.eye(3)
+            else:
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.0001*np.eye(3)
+        else:
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
+        #have a go changing introduced noise/ tuning parameter 
         return Q
 
     def add_landmarks(self, measurements):
