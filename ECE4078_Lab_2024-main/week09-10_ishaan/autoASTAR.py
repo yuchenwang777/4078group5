@@ -119,6 +119,8 @@ class Operate:
             self.detector_output, self.yolo_vis = self.detector.detect_single_image(yolo_input_img)
             self.yolo_vis = cv2.cvtColor(self.yolo_vis, cv2.COLOR_RGB2BGR)
             self.file_output = (yolo_input_img, self.ekf)
+            return self.detector_output
+        return []
     # save raw images taken by the camera
     def save_image(self):
         f_ = os.path.join(self.folder, f'img_{self.image_id}.png')
@@ -236,7 +238,7 @@ class Operate:
         ln_dist = np.sqrt((x_goal - x) ** 2 + (y_goal- y) ** 2)
         wheel_vel = 50
         lin_time = ln_dist/(self.scale*wheel_vel) 
-        wheel_vel=19 
+        wheel_vel=20 #19 
         rot_time=abs(self.baseline*theta_diff*0.5/(self.scale*wheel_vel))
         print(f"Turning for {np.round(rot_time[0],2)} seconds")
 
@@ -281,7 +283,23 @@ class Operate:
             return True
         return False
     
-    def lost(self,threshold):
+    def is_target_goal(self, detected_fruits, current_goal):
+        """
+        Check if any detected fruit matches the current target goal.
+        :param detected_fruits: List of detected fruits with their positions.
+        :param current_goal: The current target goal with its position.
+        :return: Boolean indicating if the target goal is detected.
+        """
+        for fruit in detected_fruits:
+            if fruit['label'] == current_goal['label']:
+                x_fruit, y_fruit = fruit['position']
+                x_goal, y_goal = current_goal['position']
+                distance = np.sqrt((x_fruit - x_goal) ** 2 + (y_fruit - y_goal) ** 2)
+                if distance < 0.1:  # 10 cm threshold
+                    return True
+        return False
+    
+    def lost(self,threshold, current_goal):
         cov_x = self.ekf.P[0,0]
         cov_y = self.ekf.P[1,1]
         if cov_x > threshold or cov_y > threshold:
@@ -296,6 +314,14 @@ class Operate:
                 self.update_slam(drive_meas)
                 cov_x = self.ekf.P[0,0]
                 cov_y = self.ekf.P[1,1]
+
+                #detect_target
+                detected_fruits = self.detect_target()
+
+                if self.is_target_goal(detected_fruits, current_goal):
+                    print("Reached the goal!")
+                    return True  # Indicate that the goal has been reached
+                return False
 
 def read_true_map(fname):
     """Read the ground truth map and output the pose of the ArUco markers and 5 target fruits&vegs to search for
@@ -549,7 +575,7 @@ if __name__ == "__main__":
     fruit_list, fruit_true_pos, aruco_true_pos = read_true_map(args.map)
     for i in range(len(aruco_true_pos)):
         x , y = aruco_true_pos[i]
-        operate.ekf.add_fix_landmarks(i+1,x,y)
+        operate.ekf.add_fix_landmarks(i+1,x,y) #do we want to update map during runtime?
     search_list = read_search_list()
 
     print_target_fruits_pos(search_list, fruit_list, fruit_true_pos)
@@ -559,13 +585,20 @@ if __name__ == "__main__":
     while start:
         grid_precision = 50
         occupancy_grid = create_occupancy_grid(grid_precision, fruit_true_pos, aruco_true_pos)
-        for search_index in range(len(search_list)+1):
+        for search_index in range(len(search_list)):
             pos = operate.get_robot_pose()
             print("Current position:", pos)
             path, fruit_x, fruit_y = find_path_to_fruit(pos, search_list, search_index, fruit_list, fruit_true_pos, aruco_true_pos, grid_precision)
             operate.target = (fruit_x, fruit_y)
+            if not path:
+                print("No path found to the target:", search_list[search_index])
+                continue
             for path_node in path:
-                operate.lost(0.1)
+                found = operate.lost(0.1,search_list[search_index])
+                if found:
+                    print('reached target while lost lol')
+                    break
+                #operate.lost(0.1)
                 # x and y need to be flipped due to path finding quirk
                 y = (path_node.x / grid_precision)-1.5
                 x = (path_node.y / grid_precision)-1.5
@@ -573,6 +606,7 @@ if __name__ == "__main__":
                 waypoint['x']=x
                 waypoint['y']=y
                 if operate.drive_to_point(waypoint):
+                    #operate.lost(0.1)
                     break
             
             print("Arrived at fruit:", search_list[search_index])

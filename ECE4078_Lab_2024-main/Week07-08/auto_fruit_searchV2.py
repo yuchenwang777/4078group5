@@ -439,18 +439,18 @@ if __name__ == "__main__":
                 next_node = path[1]  # Get the next node in the path
                 expected_orientation = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
                 print(f"expected pose: {next_node,expected_orientation}")
-                lv, rv, dt = rotate_to_point(next_node, current_position)
+                #lv, rv, dt = rotate_to_point(next_node, current_position)
                 #current_position = rotate_to_point(next_node, current_position)
-                current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
-                lv, rv, dt = drive_to_point(next_node, current_position)
-                if ekf.P[0,0] > 0.1 or ekf.P[1,1] > 0.1:
-                    for i in range(5):
-                        lv, rv = ppi.set_velocity([1, 0], tick=30, time=1)
-                        current_position = get_robot_pose(ekf,robot,lv,rv,1)
+                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose theta
+                #lv, rv, dt = drive_to_point(next_node, current_position)
+                #if ekf.P[0,0] > 0.1 or ekf.P[1,1] > 0.1:
+                #    for i in range(5):
+                #        lv, rv = ppi.set_velocity([1, 0], tick=30, time=1)
+                #        current_position = get_robot_pose(ekf,robot,lv,rv,1)
 
-                #current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
-                #current_position[:2] = next_node
-                current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
+                current_position[2] = np.arctan2(next_node[1] - current_position[1], next_node[0] - current_position[0])
+                current_position[:2] = next_node
+                #current_position = get_robot_pose(ekf,robot,lv,rv,dt)  # Update the robot's pose x and y
                 #current_position = robot_pose
                 full_path.append(current_position.copy())
                 if np.linalg.norm(np.array(current_position[:2]) - np.array(goal[:2])) < 0.3:

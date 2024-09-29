@@ -4,7 +4,7 @@ import cv2
 import math
 import pygame
 
-class EKF:
+class EKF: 
     # Implementation of an EKF for SLAM
     # The state is ordered as [x; y; theta; l1x; l1y; ...; lnx; lny]
 
@@ -87,17 +87,18 @@ class EKF:
     # the prediction step of EKF
     def predict(self, raw_drive_meas):
 
-        A = self.state_transition(raw_drive_meas) #x', y', theta', 1 ... n (length of landmarks)
-        x = self.get_state_vector() # x, y, theta, landmarks...
-        
-        Q = self.predict_covariance(raw_drive_meas) #Sigma_Q
-        
-        #add this line to self update the robot state
+        if np.all(raw_drive_meas==0): 
+            return
+
+        F = self.state_transition(raw_drive_meas) # F = A in our workshop slides 
+        x = self.get_state_vector()
+
+        # TODO: add your codes here to complete the prediction step
         self.robot.drive(raw_drive_meas)
-        #P is Sigma_M
-        P = self.P
-        P_bar = A @ P @ A.T + Q
-        self.P = P_bar
+        Q = self.predict_covariance(raw_drive_meas)
+        self.P = F @ self.P @ F.T + Q
+
+
 
     # the update step of EKF
     def update(self, measurements):
@@ -112,7 +113,20 @@ class EKF:
         z = np.concatenate([lm.position.reshape(-1,1) for lm in measurements], axis=0)
         R = np.zeros((2*len(measurements),2*len(measurements)))
         for i in range(len(measurements)):
-            R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance
+            distance_to_marker = np.linalg.norm(measurements[i].position- self.robot.state[0:2])
+            if distance_to_marker > 2.5:
+                scaleF = 1.8
+            elif distance_to_marker > 2.0:
+                scaleF = 1.6
+            elif distance_to_marker > 1.5:
+                scaleF = 1.45
+            elif distance_to_marker > 1.0:
+                scaleF = 1.25
+            elif distance_to_marker > 0.5:
+                scaleF = 1.15
+            else:
+                scaleF = 1.0
+            R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance * scaleF
 
         # Compute own measurements
         z_hat = self.robot.measure(self.markers, idx_list)
@@ -122,19 +136,16 @@ class EKF:
         x = self.get_state_vector()
 
         # TODO: add your codes here to compute the updated x
+        K = self.P@ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
+        ux = x + K@(z - z_hat)
 
-        C = H
-        # 3. Compute Kalman Gain
-        K = self.P @ C.T @ np.linalg.pinv(C@self.P@C.T+R)
-        # 4. Correct state
-        corrected_x = x + K @ (z - z_hat)
-        # 5. Correct covariance
-        corrected_P = (np.eye(K.shape[0])-K@C)@self.P
+        # LOCATION OF ITEM CHANGE 1: 
+        #self.P = (np.eye(x.shape[0])-K@H)@self.P
+        self.P = (np.eye(len(K))-K@H)@self.P
 
-        # Save corrected values
-        self.set_state_vector(corrected_x)
-        self.P = corrected_P
-        
+        self.set_state_vector(ux)
+
+
 
     def state_transition(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
@@ -150,9 +161,9 @@ class EKF:
        # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
         if not np.all(raw_drive_meas ==0 ):
             if (raw_drive_meas.right_speed < 0):
-                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.0006*np.eye(3)
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
             else:
-                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.0001*np.eye(3)
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.001*np.eye(3)
         else:
             Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
         #have a go changing introduced noise/ tuning parameter 
@@ -191,7 +202,11 @@ class EKF:
         self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
         self.P[-2,-2] = 1e-20
         self.P[-1,-1] = 1e-20
+            
 
+    ##########################################
+    ##########################################
+    ##########################################
 
     @staticmethod
     def umeyama(from_points, to_points):
