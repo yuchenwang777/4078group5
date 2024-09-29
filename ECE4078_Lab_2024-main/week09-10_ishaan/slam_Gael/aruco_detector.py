@@ -32,16 +32,24 @@ class aruco_detector:
         for i in range(len(ids)):
             idi = ids[i,0]
             # Some markers appear multiple times but should only be handled once.
-            if idi in seen_ids:
+            if idi in seen_ids or idi>10:
                 continue
             else:
                 seen_ids.append(idi)
+                
+            center = self.marker_length/2
+            tvecs[i][0][0]+= center*np.sin(rvecs[i][0][2])
+            tvecs[i][0][2]+= center*np.cos(rvecs[i][0][2])
 
             lm_tvecs = tvecs[ids==idi].T
             lm_bff2d = np.block([[lm_tvecs[2,:]],[-lm_tvecs[0,:]]])
             lm_bff2d = np.mean(lm_bff2d, axis=1).reshape(-1,1)
+            
+            
 
             lm_measurement = measure.Marker(lm_bff2d, idi)
+            
+            # print(lm_measurement.tag,np.hypot(*lm_measurement.position))
             measurements.append(lm_measurement)
 
         # Draw markers on image copy

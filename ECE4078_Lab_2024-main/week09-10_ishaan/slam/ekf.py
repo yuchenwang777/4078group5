@@ -13,7 +13,7 @@ class EKF:
     # Add outlier rejection here
     ##########################################
 
-    def __init__(self, robot):
+    def __init__(self, robot,known_aruco_pos=None):
         # State components
         self.robot = robot
         self.markers = np.zeros((2,0))
@@ -22,6 +22,7 @@ class EKF:
         # Covariance matrix
         self.P = np.zeros((3,3))
         self.init_lm_cov = 1e3
+        self.init_known_lm_cov = 1e-3
         self.robot_init_state = None
         self.lm_pics = []
         for i in range(1, 11):
@@ -30,6 +31,18 @@ class EKF:
         f_ = f'./pics/8bit/lm_unknown.png'
         self.lm_pics.append(pygame.image.load(f_))
         self.pibot_pic = pygame.image.load(f'./pics/8bit/pibot_top.png')
+        if known_aruco_pos is None:
+            pass
+        else:
+            self.taglist = [1,2,3,4,5,6,7,8,9,10]
+            self.robot.state = np.zeros((3,1))
+            self.P = np.zeros((3,3))
+            for aruco_ind in range(known_aruco_pos.shape[0]):
+                self.markers = np.concatenate((self.markers, np.expand_dims(known_aruco_pos[aruco_ind,:], axis=1)),axis=1)
+                self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
+                self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
+                self.P[-2,-2] = self.init_known_lm_cov
+                self.P[-1,-1] = self.init_known_lm_cov
         
     def reset(self):
         self.robot.state = np.zeros((3, 1))
