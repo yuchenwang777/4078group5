@@ -4,7 +4,7 @@ import cv2
 import math
 import pygame
 
-class EKF: 
+class EKF:
     # Implementation of an EKF for SLAM
     # The state is ordered as [x; y; theta; l1x; l1y; ...; lnx; lny]
 
@@ -13,15 +13,16 @@ class EKF:
     # Add outlier rejection here
     ##########################################
 
-    def __init__(self, robot):
+    def __init__(self, robot,known_aruco_pos=None):
         # State components
-        self.robot = robot
+        self.robot = robot  
         self.markers = np.zeros((2,0))
-        self.taglist = []
 
+        self.taglist = []
         # Covariance matrix
         self.P = np.zeros((3,3))
         self.init_lm_cov = 1e3
+        self.init_known_lm_cov = 1e-3
         self.robot_init_state = None
         self.lm_pics = []
         for i in range(1, 11):
@@ -30,7 +31,19 @@ class EKF:
         f_ = f'./pics/8bit/lm_unknown.png'
         self.lm_pics.append(pygame.image.load(f_))
         self.pibot_pic = pygame.image.load(f'./pics/8bit/pibot_top.png')
-        
+        if known_aruco_pos is None:
+            pass
+        else:
+            self.taglist = [1,2,3,4,5,6,7,8,9,10]
+            self.robot.state = np.zeros((3,1))
+            self.P = np.zeros((3,3))
+            for aruco_ind in range(known_aruco_pos.shape[0]):
+                self.markers = np.concatenate((self.markers, np.expand_dims(known_aruco_pos[aruco_ind,:], axis=1)),axis=1)
+                self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
+                self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
+                self.P[-2,-2] = self.init_known_lm_cov
+                self.P[-1,-1] = self.init_known_lm_cov
+
     def reset(self):
         self.robot.state = np.zeros((3, 1))
         self.markers = np.zeros((2,0))
@@ -86,19 +99,12 @@ class EKF:
 
     # the prediction step of EKF
     def predict(self, raw_drive_meas):
-
-        if np.all(raw_drive_meas==0): 
-            return
-
-        F = self.state_transition(raw_drive_meas) # F = A in our workshop slides 
-        x = self.get_state_vector()
-
-        # TODO: add your codes here to complete the prediction step
         self.robot.drive(raw_drive_meas)
-        Q = self.predict_covariance(raw_drive_meas)
+        
+        F = self.state_transition(raw_drive_meas)
+
+        Q = self.predict_covariance(raw_drive_meas)        
         self.P = F @ self.P @ F.T + Q
-
-
 
     # the update step of EKF
     def update(self, measurements):
@@ -113,20 +119,8 @@ class EKF:
         z = np.concatenate([lm.position.reshape(-1,1) for lm in measurements], axis=0)
         R = np.zeros((2*len(measurements),2*len(measurements)))
         for i in range(len(measurements)):
-            distance_to_marker = np.linalg.norm(measurements[i].position- self.robot.state[0:2])
-            if distance_to_marker > 2.5:
-                scaleF = 1.8
-            elif distance_to_marker > 2.0:
-                scaleF = 1.6
-            elif distance_to_marker > 1.5:
-                scaleF = 1.45
-            elif distance_to_marker > 1.0:
-                scaleF = 1.25
-            elif distance_to_marker > 0.5:
-                scaleF = 1.15
-            else:
-                scaleF = 1.0
-            R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance * scaleF
+            R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance*sum(measurements[i].position**2)
+            # R[2*i:2*i+2,2*i:2*i+2] = measurements[i].covariance
 
         # Compute own measurements
         z_hat = self.robot.measure(self.markers, idx_list)
@@ -136,37 +130,29 @@ class EKF:
         x = self.get_state_vector()
 
         # TODO: add your codes here to compute the updated x
-        K = self.P@ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
-        ux = x + K@(z - z_hat)
+        K = self.P @ H.T @ np.linalg.inv(H @ self.P @ H.T + R)
+        x_updated = x + K @ (z - z_hat)
 
-        # LOCATION OF ITEM CHANGE 1: 
-        #self.P = (np.eye(x.shape[0])-K@H)@self.P
-        self.P = (np.eye(len(K))-K@H)@self.P
+        min_value = -np.pi
+        max_value = np.pi
+        x_updated[2] = (x_updated[2] + max_value) % (2 * np.pi) + min_value
 
-        self.set_state_vector(ux)
-
-
+        self.set_state_vector(x_updated)
+        # self.P = (np.eye(self.P.shape[0]) - K @ H) @ self.P
+        self.P = self.P - K @ H @ self.P
+        
 
     def state_transition(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
         F = np.eye(n)
         F[0:3,0:3] = self.robot.derivative_drive(raw_drive_meas)
         return F
-    
+
+
     def predict_covariance(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
         Q = np.zeros((n,n))
-       
-       ##LOCATION OF ITEM CHANGE 2: 
-       # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
-        if not np.all(raw_drive_meas ==0 ):
-            if (raw_drive_meas.right_speed < 0):
-                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
-            else:
-                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.001*np.eye(3)
-        else:
-            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
-        #have a go changing introduced noise/ tuning parameter 
+        Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) + 0.0001*np.eye(3)
         return Q
 
     def add_landmarks(self, measurements):
@@ -194,15 +180,6 @@ class EKF:
             self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
             self.P[-2,-2] = self.init_lm_cov**2
             self.P[-1,-1] = self.init_lm_cov**2
-
-    def add_fix_landmarks(self, value, x, y):
-        self.markers = np.concatenate((self.markers, np.array([[x],[y]])), axis=1)
-        self.taglist.append(int(value))
-        self.P = np.concatenate((self.P, np.zeros((2, self.P.shape[1]))), axis=0)
-        self.P = np.concatenate((self.P, np.zeros((self.P.shape[0], 2))), axis=1)
-        self.P[-2,-2] = 1e-20
-        self.P[-1,-1] = 1e-20
-            
 
     ##########################################
     ##########################################
@@ -252,29 +229,46 @@ class EKF:
         y_im = int(y*m2pixel+h/2.0)
         return (x_im, y_im)
 
-    def draw_slam_state(self, res = (320, 500), not_pause=True):
+    def draw_slam_state(self, fruit_true_pos=None, fruit_list=None,checkpoints=None,shopping_list = None, res=(600, 600), not_pause=True):
+    
+        fruit_colors = {
+        'orange': (255, 200, 0),
+        'lemon': (200, 200, 150),
+        'lime': (0, 255, 0),
+        'tomato': (255, 0, 0),
+        'capsicum': (50, 50, 251),
+        'potato': (143,95, 0),
+        'pumpkin': (255, 117, 24),
+        'garlic': (211, 211, 211)
+    }
+        route_color = (255,255,255)
+        route_thickness = 8
         # Draw landmarks
-        m2pixel = 100
+        m2pixel = 200
         if not_pause:
             bg_rgb = np.array([213, 213, 213]).reshape(1, 1, 3)
         else:
             bg_rgb = np.array([120, 120, 120]).reshape(1, 1, 3)
-        canvas = np.ones((res[1], res[0], 3))*bg_rgb.astype(np.uint8)
-        # in meters, 
+        canvas = np.ones((res[1], res[0], 3)) * bg_rgb.astype(np.uint8)
+
         lms_xy = self.markers[:2, :]
         robot_xy = self.robot.state[:2, 0].reshape((2, 1))
-        lms_xy = lms_xy - robot_xy
-        robot_xy = robot_xy*0
+
         robot_theta = self.robot.state[2,0]
-        # plot robot
-        start_point_uv = self.to_im_coor((0, 0), res, m2pixel)
-        
-        p_robot = self.P[0:2,0:2]
-        axes_len,angle = self.make_ellipse(p_robot)
-        canvas = cv2.ellipse(canvas, start_point_uv, 
-                    (int(axes_len[0]*m2pixel), int(axes_len[1]*m2pixel)),
-                    angle, 0, 360, (0, 30, 56), 1)
-        # draw landmards
+        robot_xy = self.robot.state[:2, 0].reshape((2, 1))
+        # robot_xy = robot_xy * 0
+        robot_theta = self.robot.state[2,0]
+
+        # Plot robot
+        start_point_uv = self.to_im_coor(robot_xy, res, m2pixel)
+        p_robot = self.P[0:2, 0:2]
+        axes_len, angle = self.make_ellipse(p_robot)
+
+        canvas = cv2.ellipse(canvas, start_point_uv,
+                            (int(axes_len[0] * m2pixel), int(axes_len[1] * m2pixel)),
+                            angle, 0, 360, (0, 30, 56), 1)
+
+        # Draw landmarks
         if self.number_landmarks() > 0:
             for i in range(len(self.markers[0,:])):
                 xy = (lms_xy[0, i], lms_xy[1, i])
@@ -286,10 +280,36 @@ class EKF:
                     (int(axes_len[0]*m2pixel), int(axes_len[1]*m2pixel)),
                     angle, 0, 360, (244, 69, 96), 1)
 
+        # Draw fruits 
+        if fruit_true_pos is not None and fruit_list is not None:
+            for fruit_pos, fruit_name in zip(fruit_true_pos,fruit_list):
+                if fruit_name in fruit_colors:
+                    fruit_color = fruit_colors[fruit_name]
+
+                fruit_xy = (fruit_pos[0], fruit_pos[1])
+                fruit_coor = self.to_im_coor(fruit_xy, res, m2pixel)
+                cv2.circle(canvas, fruit_coor, 5, fruit_color, -1) 
+
+                star_size = 5  
+                line_length = 10 
+                cv2.line(canvas, (fruit_coor[0] - star_size, fruit_coor[1]), (fruit_coor[0] + star_size, fruit_coor[1]), fruit_color, 2)
+                cv2.line(canvas, (fruit_coor[0], fruit_coor[1] - star_size), (fruit_coor[0], fruit_coor[1] + star_size), fruit_color, 2)
+                cv2.line(canvas, (fruit_coor[0] - line_length, fruit_coor[1] - line_length), (fruit_coor[0] + line_length, fruit_coor[1] + line_length), fruit_color, 2)
+                cv2.line(canvas, (fruit_coor[0] - line_length, fruit_coor[1] + line_length), (fruit_coor[0] + line_length, fruit_coor[1] - line_length), fruit_color, 2)
+
+        # Draw route
+        if checkpoints is not None and checkpoints:
+            for route in checkpoints: # Set of coords
+                for i,point in enumerate(route[:-1]):
+                    cv2.arrowedLine(canvas,self.to_im_coor(point, res, m2pixel),self.to_im_coor(route[i+1], res, m2pixel),color=route_color,thickness=route_thickness)
+            for j in range(len(checkpoints)-1):
+                cv2.arrowedLine(canvas,self.to_im_coor(checkpoints[j][-1], res, m2pixel),self.to_im_coor(checkpoints[j+1][0], res, m2pixel),color=route_color,thickness=route_thickness)
+
         surface = pygame.surfarray.make_surface(np.rot90(canvas))
         surface = pygame.transform.flip(surface, True, False)
-        surface.blit(self.rot_center(self.pibot_pic, robot_theta*57.3),
-                    (start_point_uv[0]-15, start_point_uv[1]-15))
+        surface.blit(self.rot_center(self.pibot_pic, robot_theta * 57.3),
+                    (start_point_uv[0] - 15, start_point_uv[1] - 15))
+
         if self.number_landmarks() > 0:
             for i in range(len(self.markers[0,:])):
                 xy = (lms_xy[0, i], lms_xy[1, i])
@@ -301,6 +321,7 @@ class EKF:
                     surface.blit(self.lm_pics[-1],
                     (coor_[0]-5, coor_[1]-5))
         return surface
+
 
     @staticmethod
     def rot_center(image, angle):

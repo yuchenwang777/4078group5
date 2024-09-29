@@ -32,18 +32,30 @@ class aruco_detector:
         for i in range(len(ids)):
             idi = ids[i,0]
             # Some markers appear multiple times but should only be handled once.
-            if idi in seen_ids:
+            if idi in seen_ids or idi>10:
                 continue
             else:
                 seen_ids.append(idi)
 
-            lm_tvecs = tvecs[ids==idi].T
-            lm_bff2d = np.block([[lm_tvecs[2,:]],[-lm_tvecs[0,:]]])
-            lm_bff2d = np.mean(lm_bff2d, axis=1).reshape(-1,1)
+             # Get the rotation and translation vectors
+            rvec = rvecs[i]
+            tvec = tvecs[i]
+
+            # Convert rotation vector to rotation matrix
+            R, _ = cv2.Rodrigues(rvec)
+
+            # Calculate the offset from the marker to the cube's center
+            offset = np.array([0, 0, self.marker_length / 2]).reshape((3, 1))
+
+            # Transform the marker position to the cube's center
+            cube_center = tvec.T + R @ offset
+
+            # Convert to 2D coordinates (assuming the robot's pose is aligned with the principal axis)
+            lm_bff2d = np.block([[cube_center[2, 0]], [-cube_center[0, 0]]]).reshape(-1, 1)
 
             lm_measurement = measure.Marker(lm_bff2d, idi)
             measurements.append(lm_measurement)
-
+        
         # Draw markers on image copy
         img_marked = img.copy()
         cv2.aruco.drawDetectedMarkers(img_marked, corners, ids)
