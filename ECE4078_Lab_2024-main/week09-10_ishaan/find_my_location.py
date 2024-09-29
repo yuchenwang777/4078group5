@@ -10,11 +10,6 @@ def locate_update(self):
 
     return self.ekf.robot.state
 
-
-
-
-
-
 def find_my_location(self):
         
         got_two = False

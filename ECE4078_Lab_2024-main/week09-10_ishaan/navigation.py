@@ -1,468 +1,742 @@
-# Robot Teleoperation with SLAM and Object Detection
-
+# teleoperate the robot, perform SLAM and object detection
+import re
 import os
 import sys
 import time
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 import random
-import pygame
-import shutil
-import argparse
-
-# Add utility directories to the system path
-sys.path.insert(0, os.path.join(os.getcwd(), "util"))
-from util.pibot import PenguinPi  # Robot control class
-import util.DatasetHandler as dh   # Data handling utilities
-import util.measure as measure     # Measurement utilities
+import math
+import json
+# import utility functions
+sys.path.insert(0, "{}/util".format(os.getcwd()))
+from util.pibot import PenguinPi    # access the robot
+import util.DatasetHandler as dh    # save/load functions
+import util.measure as measure      # measurements
 from util.operate_util import *
 from util.mapping_util import *
+import pygame                       # python package for GUI
+import shutil                       # python package for file operations
 
-sys.path.insert(0, os.path.join(os.getcwd(), "slam"))
-from slam.ekf import EKF           # Extended Kalman Filter for SLAM
-from slam.robot import Robot       # Robot model
-import slam.aruco_detector_center as aruco  # ArUco marker detection
+# import SLAM components you developed in M2
+sys.path.insert(0, "{}/slam".format(os.getcwd()))
+from slam.ekf import EKF
+from slam.robot import Robot
+import slam.aruco_detector_center as aruco # used our own aruco_detector which excludes markers > 10, and attempts to get the center of the cube.
 
-sys.path.insert(0, os.path.join(os.getcwd(), "path_planning"))
-from path_planning.RRTC import RRTC         # Rapidly-exploring Random Tree (RRT) algorithm
-from path_planning.Obstacle import *        # Obstacle definitions
+sys.path.insert(0, "{}/path_planning".format(os.getcwd()))
 
-sys.path.insert(0, os.path.join(os.getcwd(), "YOLO"))
-from YOLO.detector import Detector  # YOLO object detector
+# RRTC code from practical
+from path_planning.RRTC import RRTC
+from path_planning.Obstacle import *
 
-class RobotOperation:
+# import YOLO components 
+sys.path.insert(0, "{}/YOLO".format(os.getcwd()))
+from YOLO.detector import Detector
+
+class Operate:
     def __init__(self, args):
-        # Load maps and target lists
-        self.fruit_list, self.fruit_positions, self.aruco_positions = read_lab_output(
-            f'lab_output/{args.slam}', f'lab_output/{args.targets}')
-        self.shopping_list = read_search_list(args.search_list)
+        # Uses maps generated in SLAM run
+        self.fruit_list,self.fruit_true_pos,self.aruco_true_pos = read_lab_output(f'lab_output/{args.slam}',f'lab_output/{args.targets}')
+        # self.fruit_list,self.fruit_true_pos,self.aruco_true_pos = read_true_map('Arena3.txt')
+        
+        # Prints for debugging
+        print("fruit_list")
+        print(self.fruit_list)
+        print("fruit pos")
+        print(self.fruit_true_pos)
+        print("aruco pos")
+        print(self.aruco_true_pos)
+        self.search_list = read_search_list(args.search_list)
+        print(self.search_list)
 
-        # Setup data directories
-        self.data_folder = 'pibot_dataset/'
-        if not os.path.exists(self.data_folder):
-            os.makedirs(self.data_folder)
+        self.folder = 'pibot_dataset/'
+        if not os.path.exists(self.folder):
+            os.makedirs(self.folder)
         else:
-            shutil.rmtree(self.data_folder)
-            os.makedirs(self.data_folder)
+            shutil.rmtree(self.folder)
+            os.makedirs(self.folder)
 
-        # Initialize robot
+        # initialise data parameters
         if args.play_data:
             self.pibot = dh.DatasetPlayer("record")
         else:
             self.pibot = PenguinPi(args.ip, args.port)
 
-        # Initialize SLAM components
-        self.ekf = self.initialize_ekf(args.calib_dir, args.ip, self.aruco_positions)
-        self.aruco_detector = aruco.aruco_detector(self.ekf.robot, marker_length=0.07)
+        # initialise SLAM parameters
+        self.ekf = self.init_ekf(args.calib_dir, args.ip,known_aruco_pos=self.aruco_true_pos)
+        self.aruco_det = aruco.aruco_detector(
+            self.ekf.robot, marker_length=0.07)  # size of the ARUCO markers
 
-        # Data recording setup
-        self.data_writer = dh.DatasetWriter('record') if args.save_data else None
-        self.output_writer = dh.OutputWriter('lab_output')
-
-        # Command and control variables
-        self.command = {'motion': [0, 0], 'inference': False, 'output': False,
-                        'save_inference': False, 'save_image': False}
-        self.quit_program = False
-        self.ekf_active = True
-        self.notification = 'Starting Robot Operation'
-        self.image_counter = 0
+        if args.save_data:
+            self.data = dh.DatasetWriter('record')
+        else:
+            self.data = None
+        self.output = dh.OutputWriter('lab_output')
+        self.command = {'motion': [0, 0],
+                        'inference': False,
+                        'output': False,
+                        'save_inference': False,
+                        'save_image': False}
+        self.quit = False
+        self.pred_fname = ''
+        self.request_recover_robot = False
+        self.file_output = None
+        self.ekf_on = True
+        self.double_reset_comfirm = 0
+        self.image_id = 0
+        self.notification = 'Level 2 Nav'
+        self.pred_notifier = False
+        # a 5min timer
         self.count_down = 3000
         self.start_time = time.time()
-        self.control_timer = time.time()
-
-        # Image placeholders
-        self.current_image = np.zeros([240, 320, 3], dtype=np.uint8)
-        self.aruco_image = np.zeros([240, 320, 3], dtype=np.uint8)
-        self.detection_output = np.zeros([240, 320], dtype=np.uint8)
-
-        # Initialize YOLO detector
-        if args.yolo_model:
-            self.detector = Detector(args.yolo_model)
-            self.detection_visualization = np.ones((240, 320, 3)) * 100
-        else:
+        self.control_clock = time.time()
+        # initialise images
+        self.img = np.zeros([240, 320, 3], dtype=np.uint8)
+        self.aruco_img = np.zeros([240, 320, 3], dtype=np.uint8)
+        self.detector_output = np.zeros([240, 320], dtype=np.uint8)
+        if args.yolo_model == "":
             self.detector = None
-            self.detection_visualization = cv2.imread('pics/8bit/detector_splash.png')
+            self.yolo_vis = cv2.imread('pics/8bit/detector_splash.png')
+        else:
+            self.detector = Detector(args.yolo_model)
+            self.yolo_vis = np.ones((240, 320, 3)) * 100
+        self.bg = pygame.image.load('pics/gui_mask.jpg')
 
-        # GUI background
-        self.gui_background = pygame.image.load('pics/gui_mask.jpg')
+        self.completed = False
+        self.queued_actions = []
+        self.closest_dist = 1e3
+        self.stop_time = time.time()
+        self.stopping = False
+        # Path planning 
+        # self.step_size = 0.10 #meters
+        # Save planned route as list of lists of points (robot will stop after each sublist is completed)
+        self.checkpoints = []
 
-        # Navigation variables
-        self.navigation_complete = False
-        self.action_queue = []
-        self.closest_distance = float('inf')
-        self.stop_duration = time.time()
-        self.is_stopping = False
-        self.path_checkpoints = []
+    def plot_path_and_obstacles(self, checkpoints, fruit_true_pos, aruco_true_pos):
+        plt.figure(figsize=(10, 10))
 
-    def plan_navigation(self):
+        # Plot obstacles with 10 cm diameter (5 cm radius)
+        obstacle_size = (10 / 2) ** 2  # Size for scatter plot (area)
+        
+        # Plot Aruco markers
+        aruco_x = [pos[0] for pos in aruco_true_pos]
+        aruco_y = [pos[1] for pos in aruco_true_pos]
+        plt.scatter(aruco_x, aruco_y, s=obstacle_size, c='red', label='Aruco Marker')
+
+        # Plot fruits
+        fruit_x = [pos[0] for pos in fruit_true_pos]
+        fruit_y = [pos[1] for pos in fruit_true_pos]
+        plt.scatter(fruit_x, fruit_y, s=obstacle_size, c='green', label='Fruit')
+
+        # Plot path
+        for checkpoint_set in checkpoints:
+            x_coords = [point[0] for point in checkpoint_set]
+            y_coords = [point[1] for point in checkpoint_set]
+            plt.plot(x_coords, y_coords, 'b-', label='Path' if 'Path' not in plt.gca().get_legend_handles_labels()[1] else "")
+
+        # Invert axes
+        plt.gca().invert_xaxis()
+        plt.gca().invert_yaxis()
+
+        plt.xlabel('X Coordinate (meters)')
+        plt.ylabel('Y Coordinate (meters)')
+        plt.title('Path and Obstacles')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    def get_next_instruction(self):
         """
-        Plans the path to navigate to all fruits in the shopping list.
-        Populates self.path_checkpoints with lists of waypoints.
-        """
-        initial_position = [0, 0]
-        full_obstacle_list = self.aruco_positions.tolist() + self.fruit_positions.tolist()
-        safe_radii = [0.35, 0.3, 0.25, 0.2, 0.15, 0.1]
-
-        # Generate waypoints for each fruit in the shopping list
-        for fruit_index, fruit_name in enumerate(self.shopping_list):
-            target_position = self.fruit_positions[self.fruit_list.index(fruit_name)].tolist()
-            temp_obstacles = full_obstacle_list.copy()
-            temp_obstacles.remove(target_position)
-
-            for radius in safe_radii:
-                obstacles = create_obstacle_list(temp_obstacles, radius)
-                possible_routes = []
-
-                # Try multiple times to find a valid route
-                for _ in range(150):
-                    start_position = self.path_checkpoints[-1][-1] if self.path_checkpoints else initial_position
-                    rrt = RRTC(
-                        start=start_position,
-                        goal=target_position,
-                        obstacle_list=obstacles,
-                        width=2.7,
-                        height=2.7,
-                        expand_dis=0.2,
-                        path_resolution=0.01,
-                        max_points=1000
-                    )
-                    path = rrt.planning()
-                    if path:
-                        possible_routes.append(path[1:-1])
-
-                if possible_routes:
-                    shortest_route = min(possible_routes, key=length_of_path)
-                    self.path_checkpoints.append(shortest_route)
-                    print(f"Path to {fruit_name} found with safety radius {radius}")
-                    break
-
-    def execute_next_action(self):
-        """
-        Converts the next checkpoint into actionable commands.
-        """
-        if not self.path_checkpoints:
-            self.navigation_complete = True
+        Converts next checkpoint into instructions
+        """    
+        stop_time = 5
+        if len(self.checkpoints) == 0: # all sets of routes are completed
+            self.completed = True
             return False
         else:
-            current_target = self.shopping_list[len(self.shopping_list) - len(self.path_checkpoints)]
-            self.notification = f"Navigating to {current_target}"
+            try:
+                self.notification = f"Navigating to {self.search_list[len(self.search_list)-len(self.checkpoints)]}"
+            except IndexError:
+                pass
+        if len(self.checkpoints[0]) == 0: # Completed set
+            print("Cleaning up")
+            self.checkpoints.pop(0)
+            return self.get_next_instruction()
+        if len(self.checkpoints[0]) == 1: # last action in set
+            self.drive_to_point(self.checkpoints[0][0])
+            # self.checkpoints[0].pop(0)
+            self.checkpoints.pop(0)
+            self.queued_actions.append([0,0,stop_time])
+            return True
+        else:
+            self.drive_to_point(self.checkpoints[0][0])
+            self.checkpoints[0].pop(0)
+            return True
 
-        if not self.path_checkpoints[0]:
-            self.path_checkpoints.pop(0)
-            return self.execute_next_action()
-
-        next_point = self.path_checkpoints[0].pop(0)
-        self.prepare_motion_commands(next_point)
-        return True
-
-    def prepare_motion_commands(self, waypoint):
+    def play_action(self):
         """
-        Prepares motion commands to reach the specified waypoint.
+        From contents of self.queued_actions sets self.command['motion'] to achieve the actions
         """
+        if len(self.queued_actions) == 0: # if self.queued_actions is empty
+            if self.get_next_instruction():
+                self.play_action()
+        else:
+            next_action = self.queued_actions[0] 
+            action_type = len(next_action)
+
+            if action_type == 1:    # Target heading
+                theta = self.get_robot_state()[2]
+                ang_err = ang_clamp(next_action[0] - theta)
+
+                if abs(ang_err) <= 0.1:
+                    self.queued_actions.pop(0)
+                elif ang_err <= 0:
+                    self.command['motion'] = [0,-1]
+                else:
+                    self.command['motion'] = [0,1]
+            elif action_type == 2: # Target coord
+                # try:
+                #     object_distances = self.get_object_relative_pose()
+                #     print(min(list(object_distances.values())))
+                #     if min(list(object_distances.values())) < 0.08:
+                #         print("Collision Detected!")
+                #         print(object_distances,min(list(object_distances.values())))
+                #         self.command['motion'] = [0,0]
+                #         self.closest_dist = 1e3
+                #         self.queued_actions.pop(0)
+                # except ValueError:
+                #     pass
+                dist_to_target = self.get_distance(next_action)
+                print(f"{dist_to_target}")
+                if dist_to_target < self.closest_dist and not dist_to_target < 0.01:
+                    self.closest_dist = dist_to_target
+                    self.command['motion'] = [1,0]
+                else:
+                    if dist_to_target > self.closest_dist:
+                        print("Missed point")
+                    self.command['motion'] = [0,0]
+                    self.closest_dist = 1e3
+                    self.queued_actions.pop(0)
+            elif action_type == 3: # Stop time
+                if time.time() > self.stop_time and self.stopping is True: # Stop completed
+                    # print(f"Reached {self.search_list[len(self.search_list)-len(self.checkpoints)-1]}")
+                    self.queued_actions.pop(0)
+                    self.stopping = False
+                else:
+                    self.command['motion'] = self.queued_actions[0][:2]
+                    if self.stopping == False:
+                        self.stop_time = time.time() + next_action[2]
+                        self.stopping = True
+            else:
+                print(f"Unexpected Arguement {self.queued_actions[0]}")
+
+    def get_distance(self,waypoint):
+        '''
+        Takes x as first element of waypoint,y as second
+        
+        '''
         robot_state = self.get_robot_state()
-        delta_x = waypoint[0] - robot_state[0]
-        delta_y = waypoint[1] - robot_state[1]
-        target_angle = np.arctan2(delta_y, delta_x)
+        x = waypoint[0] - robot_state[0]
+        y = waypoint[1] - robot_state[1]
+        return np.hypot(x,y)
 
-        # Add rotation command to face the target
-        self.action_queue.append({'type': 'rotate', 'angle': target_angle})
-
-        # Add a brief stop
-        self.action_queue.append({'type': 'stop', 'duration': 0.5})
-
-        # Add movement command to reach the waypoint
-        self.action_queue.append({'type': 'move', 'position': waypoint})
-
-    def perform_actions(self):
+    def drive_to_point(self,waypoint):
         """
-        Executes actions from the action queue.
+        Takes the next checkpoint and adds the desired heading and desired (x,y) into self.queued_actions
+        For example:
+        self.queued_actions = [[0.12],[0.3,0.4]] means to rotate until theta is 0.12, drive until (x,y) = (0.3,0.4)
         """
-        if not self.action_queue:
-            if self.execute_next_action():
-                self.perform_actions()
-            return
+        robot_pose = self.get_robot_state()
 
-        current_action = self.action_queue[0]
-        action_type = current_action['type']
+        x = waypoint[0] - robot_pose[0]
+        y = waypoint[1] - robot_pose[1]
 
-        if action_type == 'rotate':
-            self.handle_rotation(current_action)
-        elif action_type == 'move':
-            self.handle_movement(current_action)
-        elif action_type == 'stop':
-            self.handle_stop(current_action)
+
+        theta = np.arctan2(y,x) - robot_pose[2]
+        target_heading = np.arctan2(y,x)
+        print("Current heading",robot_pose[2])
+        print("targeted heading",target_heading)
+        if float(theta[0]) == 0:
+            pass
         else:
-            print(f"Unknown action type: {action_type}")
-            self.action_queue.pop(0)
+            self.queued_actions.append([target_heading])
+        self.queued_actions.append([0,0,0.5])
+        self.queued_actions.append([waypoint[0],waypoint[1]])
 
-    def handle_rotation(self, action):
-        """
-        Handles rotation to a target angle.
-        """
-        current_theta = self.get_robot_state()[2]
-        angle_error = ang_clamp(action['angle'] - current_theta)
-
-        if abs(angle_error) <= 0.1:
-            self.action_queue.pop(0)
-        else:
-            self.command['motion'] = [0, -1] if angle_error <= 0 else [0, 1]
-
-    def handle_movement(self, action):
-        """
-        Handles movement to a target position.
-        """
-        distance_to_target = self.calculate_distance(action['position'])
-        if distance_to_target < self.closest_distance and distance_to_target >= 0.01:
-            self.closest_distance = distance_to_target
-            self.command['motion'] = [1, 0]
-        else:
-            self.command['motion'] = [0, 0]
-            self.closest_distance = float('inf')
-            self.action_queue.pop(0)
-
-    def handle_stop(self, action):
-        """
-        Handles stopping for a specified duration.
-        """
-        if time.time() > self.stop_duration and self.is_stopping:
-            self.action_queue.pop(0)
-            self.is_stopping = False
-        else:
-            self.command['motion'] = [0, 0]
-            if not self.is_stopping:
-                self.stop_duration = time.time() + action['duration']
-                self.is_stopping = True
-
-    def calculate_distance(self, waypoint):
-        """
-        Calculates the distance from the robot to the waypoint.
-        """
-        robot_state = self.get_robot_state()
-        delta_x = waypoint[0] - robot_state[0]
-        delta_y = waypoint[1] - robot_state[1]
-        return np.hypot(delta_x, delta_y)
-
-    def control_motors(self):
-        """
-        Sends motion commands to the robot and records drive measurements.
-        """
+    # wheel control
+    def control(self):
         if args.play_data:
-            left_vel, right_vel = self.pibot.set_velocity()
+            lv, rv = self.pibot.set_velocity()
         else:
-            left_vel, right_vel = self.pibot.set_velocity(self.command['motion'])
+            lv, rv = self.pibot.set_velocity(
+                self.command['motion'])
+        if self.data is not None:
+            self.data.write_keyboard(lv, rv)
+        dt = time.time() - self.control_clock
+        # running in sim
+        if args.ip == 'localhost':
+            drive_meas = measure.Drive(lv, rv, dt)
+        # running on physical robot (right wheel reversed)
+        else:
+            drive_meas = measure.Drive(lv, -rv, dt)
+        self.control_clock = time.time()
+        return drive_meas
 
-        if self.data_writer:
-            self.data_writer.write_keyboard(left_vel, right_vel)
+    # camera control
+    def take_pic(self):
+        self.img = self.pibot.get_image()
 
-        time_delta = time.time() - self.control_timer
-        drive_measurement = measure.Drive(left_vel, -right_vel, time_delta) if args.ip != 'localhost' else measure.Drive(left_vel, right_vel, time_delta)
-        self.control_timer = time.time()
-        return drive_measurement
+        if self.data is not None:
+            self.data.write_image(self.img)
 
-    def capture_image(self):
-        """
-        Captures an image from the robot's camera.
-        """
-        self.current_image = self.pibot.get_image()
-        if self.data_writer:
-            self.data_writer.write_image(self.current_image)
+    # SLAM with ARUCO markers       
+    def update_slam(self, drive_meas):
+        lms, self.aruco_img = self.aruco_det.detect_marker_positions(self.img)
+        if self.request_recover_robot:
+            is_success = self.ekf.recover_from_pause(lms)
+            if is_success:
+                self.notification = 'Robot pose is successfuly recovered'
+                self.ekf_on = True
+            else:
+                self.notification = 'Recover failed, need >2 landmarks!'
+                self.ekf_on = False
+            self.request_recover_robot = False
+        elif self.ekf_on:  # and not self.debug_flag:
+            self.ekf.predict(drive_meas)
+            self.ekf.add_landmarks(lms)
+            self.ekf.update(lms)
 
-    def update_slam(self, drive_measurement):
-        """
-        Updates the SLAM state with new drive measurements and marker observations.
-        """
-        markers_detected, self.aruco_image = self.aruco_detector.detect_marker_positions(self.current_image)
-        if self.ekf_active:
-            self.ekf.predict(drive_measurement)
-            self.ekf.add_landmarks(markers_detected)
-            self.ekf.update(markers_detected)
+    # using computer vision to detect targets
+    def detect_target(self):
+        if self.command['inference'] and self.detector is not None:
+            # need to convert the colour before passing to YOLO
+            yolo_input_img = cv2.cvtColor(self.img, cv2.COLOR_RGB2BGR)
 
-    def run_object_detection(self):
-        """
-        Runs the YOLO object detector on the current image.
-        """
-        if self.command['inference'] and self.detector:
-            input_image = cv2.cvtColor(self.current_image, cv2.COLOR_RGB2BGR)
-            self.detection_output, self.detection_visualization = self.detector.detect_single_image(input_image)
-            self.detection_visualization = cv2.cvtColor(self.detection_visualization, cv2.COLOR_RGB2BGR)
-            self.command['inference'] = False
+            self.detector_output, self.yolo_vis = self.detector.detect_single_image(yolo_input_img)
 
-    def save_current_image(self):
-        """
-        Saves the current image to the data folder.
-        """
+            # covert the colour back for display purpose
+            self.yolo_vis = cv2.cvtColor(self.yolo_vis, cv2.COLOR_RGB2BGR)
+
+            # self.command['inference'] = False     # uncomment this if you do not want to continuously predict
+            self.file_output = (yolo_input_img, self.ekf)
+
+            # self.notification = f'{len(self.detector_output)} target type(s) detected'
+
+    # save raw images taken by the camera
+    def save_image(self):
+        f_ = os.path.join(self.folder, f'img_{self.image_id}.png')
         if self.command['save_image']:
-            filename = os.path.join(self.data_folder, f'img_{self.image_counter}.png')
-            image_to_save = cv2.cvtColor(self.pibot.get_image(), cv2.COLOR_RGB2BGR)
-            cv2.imwrite(filename, image_to_save)
-            self.image_counter += 1
+            image = self.pibot.get_image()
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(f_, image)
+            self.image_id += 1
             self.command['save_image'] = False
-            self.notification = f'Image saved as {filename}'
+            self.notification = f'{f_} is saved'
 
-    def initialize_ekf(self, calib_dir, ip, known_aruco_positions):
-        """
-        Initializes the EKF with calibration parameters.
-        """
-        camera_matrix = np.loadtxt(os.path.join(calib_dir, "intrinsic.txt"), delimiter=',')
-        dist_coeffs = np.loadtxt(os.path.join(calib_dir, "distCoeffs.txt"), delimiter=',')
-        scale = np.loadtxt(os.path.join(calib_dir, "scale.txt"), delimiter=',')
-        baseline = np.loadtxt(os.path.join(calib_dir, "baseline.txt"), delimiter=',')
-
+    # wheel and camera calibration for SLAM
+    def init_ekf(self, datadir, ip,known_aruco_pos=None):
+        fileK = "{}intrinsic.txt".format(datadir)
+        camera_matrix = np.loadtxt(fileK, delimiter=',')
+        fileD = "{}distCoeffs.txt".format(datadir)
+        dist_coeffs = np.loadtxt(fileD, delimiter=',')
+        fileS = "{}scale.txt".format(datadir)
+        scale = np.loadtxt(fileS, delimiter=',')
         if ip == 'localhost':
             scale /= 2
+        fileB = "{}baseline.txt".format(datadir)
+        baseline = np.loadtxt(fileB, delimiter=',')
+
+        self.scale = scale
+        
+        self.baseline = baseline
+        print("scale",scale)
+        print("baseline",baseline)
+        self.camera_matrix = camera_matrix
 
         robot = Robot(baseline, scale, camera_matrix, dist_coeffs)
-        return EKF(robot, known_aruco_positions=known_aruco_positions)
+        return EKF(robot,known_aruco_pos=known_aruco_pos)
 
-    def get_robot_state(self):
-        """
-        Retrieves the current state of the robot.
-        """
-        return self.ekf.robot.state
+    # save SLAM map
+    def record_data(self):
+        if self.command['output']:
+            self.output.write_map(self.ekf)
+            self.notification = 'Map is saved'
+            self.command['output'] = False
+        # save inference with the matching robot pose and detector labels
+        if self.command['save_inference']:
+            if self.file_output is not None:
+                # image = cv2.cvtColor(self.file_output[0], cv2.COLOR_RGB2BGR)
+                self.pred_fname = self.output.write_image(self.file_output[0],
+                                                          self.file_output[1])
+                self.notification = f'Prediction is saved to {operate.pred_fname}'
+            else:
+                self.notification = f'No prediction in buffer, save ignored'
+            self.command['save_inference'] = False
 
-    def render_gui(self, canvas):
-        """
-        Renders the GUI components on the canvas.
-        """
-        canvas.blit(self.gui_background, (0, 0))
-        vertical_padding = 40
-        horizontal_padding = 30
+    # paint the GUI            
+    def draw(self, canvas):
+        canvas.blit(self.bg, (0, 0))
+        text_colour = (220, 220, 220)
+        v_pad = 40
+        h_pad = 30
+        # paint SLAM outputs
 
-        # SLAM Visualization
-        slam_view = self.ekf.draw_slam_state(
-            self.fruit_positions, self.fruit_list,
-            checkpoints=self.path_checkpoints, shopping_list=self.shopping_list,
-            res=(600, 600), not_pause=self.ekf_active)
-        canvas.blit(slam_view, (2 * horizontal_padding + 320, vertical_padding))
-        self.draw_pygame_image(canvas, self.aruco_image, position=(horizontal_padding, vertical_padding))
+        ekf_view = self.ekf.draw_slam_state(self.fruit_true_pos, self.fruit_list,checkpoints=self.checkpoints,shopping_list=self.search_list, res=(600,600),
+                                            not_pause=self.ekf_on)
+        canvas.blit(ekf_view, (2 * h_pad + 320, v_pad))
+        robot_view = cv2.resize(self.aruco_img, (320, 240))
+        self.draw_pygame_window(canvas, robot_view,
+                                position=(h_pad, v_pad)
+                                )
 
-        # Object Detection Visualization
-        detection_view = cv2.resize(self.detection_visualization, (320, 240), cv2.INTER_NEAREST)
-        self.draw_pygame_image(canvas, detection_view, position=(horizontal_padding, 240 + 2 * vertical_padding))
+        # for target detector (M3)
+        detector_view = cv2.resize(self.yolo_vis, (320, 240), cv2.INTER_NEAREST)
+        self.draw_pygame_window(canvas, detector_view,
+                                position=(h_pad, 240 + 2 * v_pad)
+                                )
 
-        # Add captions and notifications
-        self.add_caption(canvas, 'SLAM', position=(2 * horizontal_padding + 320, vertical_padding))
-        self.add_caption(canvas, 'Detector', position=(horizontal_padding, 240 + 2 * vertical_padding))
-        self.add_caption(canvas, 'PiBot Cam', position=(horizontal_padding, vertical_padding))
+        # canvas.blit(self.gui_mask, (0, 0))
+        self.put_caption(canvas, caption='SLAM', position=(2 * h_pad + 320, v_pad))
+        self.put_caption(canvas, caption='Detector',
+                         position=(h_pad, 240 + 2 * v_pad))
+        self.put_caption(canvas, caption='PiBot Cam', position=(h_pad, v_pad))
 
-        notification_surface = TEXT_FONT.render(self.notification, False, (220, 220, 220))
-        canvas.blit(notification_surface, (horizontal_padding + 10, 596))
+        notifiation = TEXT_FONT.render(self.notification,
+                                       False, text_colour)
+        canvas.blit(notifiation, (h_pad + 10, 596))
 
-        # Countdown timer
-        remaining_time = self.count_down - (time.time() - self.start_time)
-        time_display = f'Count Down: {int(remaining_time)}s' if remaining_time > 0 else "Time Is Up !!!"
-        countdown_surface = TEXT_FONT.render(time_display, False, (50, 50, 50))
-        canvas.blit(countdown_surface, (2 * horizontal_padding + 320 + 5, 530))
-
+        time_remain = self.count_down - time.time() + self.start_time
+        if time_remain > 0:
+            time_remain = f'Count Down: {time_remain:03.0f}s'
+        elif int(time_remain) % 2 == 0:
+            time_remain = "Time Is Up !!!"
+        else:
+            time_remain = ""
+        count_down_surface = TEXT_FONT.render(time_remain, False, (50, 50, 50))
+        canvas.blit(count_down_surface, (2 * h_pad + 320 + 5, 530))
         return canvas
 
-    @staticmethod
-    def draw_pygame_image(canvas, image, position):
+    def get_robot_state(self):
+        return self.ekf.robot.state
+
+    def get_object_relative_pose(self):
+        poses = {}
+        for detection in self.detector_output:
+            rel_pos = estimate_object_pose(self.camera_matrix,detection)
+            dist = np.hypot(rel_pos['x'],rel_pos['y'])
+            if detection[0] in poses.keys():
+                if dist < poses[detection[0]]:
+                    poses[detection[0]] = dist
+                else:
+                    pass
+            else:
+                poses[detection[0]] = dist
+        return poses
+
+    def navigate_to_fruits(self):
         """
-        Converts and draws an OpenCV image onto the pygame canvas.
+        Calculates sets of points the robot must go to in order to arrive at all fruits on shoppping list
+        self.checkpoints stores list of list of points , self.checkpoints[0] is the list of points to go to first fruit on shopping list
+                                                         self.checkpoints[1] is the list of points to go from first fruit to second fruit 
+                                                        .....
         """
-        image = np.rot90(image)
-        surface = pygame.surfarray.make_surface(image)
-        surface = pygame.transform.flip(surface, True, False)
-        canvas.blit(surface, position)
+        initial_pos = [0,0]
+
+        # Define Obstacles from aruco xy & fruits xy
+        fruit_true_pos = self.fruit_true_pos.tolist()
+        aruco_true_pos = self.aruco_true_pos.tolist()
+
+        FullObstacleCoorList = []
+
+        for aruco_ind in range(len(aruco_true_pos)):
+            FullObstacleCoorList.append(aruco_true_pos[aruco_ind])
+                
+        for fruit_xy in fruit_true_pos:
+            FullObstacleCoorList.append(fruit_xy)
+        # Get coordinates of fruits on shopping list    
+        waypointList = []
+        for item in self.search_list:
+            waypointList.append(fruit_true_pos[self.fruit_list.index(item)])
+
+        safe_radiuses = [0.35,0.3,0.25,0.2,0.15,0.1] # 
+        bounds = {}
+
+        # Iterate through shopping list to plan route between each waypoint
+        for ind,waypoint in enumerate(waypointList):
+            print("navigating to",waypoint)
+            tempObstacleCoorList = FullObstacleCoorList.copy()
+
+            tempObstacleCoorList.remove(waypoint)
+            for radius in safe_radiuses:                
+                obstacleList = create_obstacle_list(tempObstacleCoorList,radius)
+                # print(len(obstacleList))
+                routes = []
+                print(f"{self.search_list[ind]} radius {radius}")
+                
+                for _ in range(10):
+                    if len(self.checkpoints) == 0:
+                        start = initial_pos
+                    else:
+                        start = self.checkpoints[-1][-1]
+                    rrtc = RRTC(start=start,
+                        goal=waypoint,
+                        obstacle_list=obstacleList,
+                        width = 2.7, #mm
+                        height= 2.7, 
+                        expand_dis=0.2, 
+                        path_resolution=0.01, 
+                        max_points=1000)#max_dis=0.7,
+                    route = rrtc.planning()
+                    if route is not None:
+                        routes.append(route[1:-1])
+                if len(routes) != 0:
+                    for _ in range(140):
+                        if len(self.checkpoints) == 0:
+                            start = initial_pos
+                        else:
+                            start = self.checkpoints[-1][-1]
+                        rrtc = RRTC(start=start,
+                            goal=waypoint,
+                            obstacle_list=obstacleList,
+                            width = 2.7, #mm
+                            height= 2.7, 
+                            expand_dis=0.2, 
+                            path_resolution=0.01, 
+                            max_points=1000)#max_dis=0.7,
+                        route = rrtc.planning()
+                        if route is not None:
+                            routes.append(route[1:-1])
+                    # print(len(routes))
+                    shortestRoute = min(routes,key=length_of_path)
+                    # print(shortestRoute)
+                    self.checkpoints.append(shortestRoute)
+                    # print(shortestRoute)
+                    print(f"Found path to {self.search_list[ind]} with safety radius {radius}")
+                    bounds[self.search_list[ind]] = radius
+                    break
+
+
+    def navigate_to_next(self):
+        """
+        Calculates sets of points the robot must go to in order to arrive at all fruits on shoppping list
+        self.checkpoints stores list of list of points , self.checkpoints[0] is the list of points to go to first fruit on shopping list
+                                                         self.checkpoints[1] is the list of points to go from first fruit to second fruit 
+                                                        .....
+        """
+        initial_pos = [0,0]
+
+        # Define Obstacles from aruco xy & fruits xy
+        fruit_true_pos = self.fruit_true_pos.tolist()
+        aruco_true_pos = self.aruco_true_pos.tolist()
+
+        FullObstacleCoorList = []
+
+        for aruco_ind in range(len(aruco_true_pos)):
+            FullObstacleCoorList.append(aruco_true_pos[aruco_ind])
+                
+        for fruit_xy in fruit_true_pos:
+            FullObstacleCoorList.append(fruit_xy)
+        # Get coordinates of fruits on shopping list    
+
+        safe_radiuses = [0.35,0.3,0.25,0.2,0.15,0.1] # 
+
+        waypoint = fruit_true_pos[self.fruit_list[0]]
+        # Iterate through shopping list to plan route between each waypoint
+        print("navigating to",waypoint)
+
+        FullObstacleCoorList.remove(waypoint)
+        for radius in safe_radiuses:                
+            obstacleList = create_obstacle_list(FullObstacleCoorList,radius)
+            # print(len(obstacleList))
+            routes = []
+            print(f"{self.search_list[0]} radius {radius}")
+            
+            for _ in range(10):
+                # print(f"{search_list[ind]} try {_} radius {radius}")
+                start = self.get_robot_state()[:2]
+                rrtc = RRTC(start=start,
+                    goal=waypoint,
+                    obstacle_list=obstacleList,
+                    width = 2.7, #mm
+                    height= 2.7, 
+                    expand_dis=0.2, 
+                    path_resolution=0.01, 
+                    max_points=1000)#max_dis=0.7,
+                route = rrtc.planning()
+                if route is not None:
+                    routes.append(route[1:-1])
+            if len(routes) != 0:
+                for _ in range(90):
+                    # print(f"{search_list[ind]} try {_} radius {radius}")
+                    if len(self.checkpoints) == 0:
+                        start = initial_pos
+                    else:
+                        start = self.checkpoints[-1][-1]
+                    rrtc = RRTC(start=start,
+                        goal=waypoint,
+                        obstacle_list=obstacleList,
+                        width = 2.7, #mm
+                        height= 2.7, 
+                        expand_dis=0.2, 
+                        path_resolution=0.01, 
+                        max_points=1000)#max_dis=0.7,
+                    route = rrtc.planning()
+                    if route is not None:
+                        routes.append(route[1:-1])
+                # print(len(routes))
+                shortestRoute = min(routes,key=length_of_path)
+                # print(shortestRoute)
+                self.checkpoints.append(shortestRoute)
+                # print(shortestRoute)
+                print(f"Found path to {self.search_list[0]} with safety radius {radius}")
+
+                break
+            
 
     @staticmethod
-    def add_caption(canvas, text, position):
-        """
-        Adds a caption to the pygame canvas.
-        """
-        caption_surface = TITLE_FONT.render(text, False, (200, 200, 200))
+    def draw_pygame_window(canvas, cv2_img, position):
+        cv2_img = np.rot90(cv2_img)
+        view = pygame.surfarray.make_surface(cv2_img)
+        view = pygame.transform.flip(view, True, False)
+        canvas.blit(view, position)
+
+    @staticmethod
+    def put_caption(canvas, caption, position, text_colour=(200, 200, 200)):
+        caption_surface = TITLE_FONT.render(caption,
+                                            False, text_colour)
         canvas.blit(caption_surface, (position[0], position[1] - 25))
 
-    def handle_keyboard_input(self):
-        """
-        Processes keyboard inputs for robot control.
-        """
-        for event in pygame.event.get():
-            if event.type == pygame.KEYDOWN:
-                # Movement commands
-                if event.key == pygame.K_UP:
-                    self.command['motion'][0] = min(self.command['motion'][0] + 1, 1)
-                elif event.key == pygame.K_DOWN:
-                    self.command['motion'][0] = max(self.command['motion'][0] - 1, -1)
-                elif event.key == pygame.K_LEFT:
-                    self.command['motion'][1] = min(self.command['motion'][1] + 1, 1)
-                elif event.key == pygame.K_RIGHT:
-                    self.command['motion'][1] = max(self.command['motion'][1] - 1, -1)
-                elif event.key == pygame.K_SPACE:
-                    self.command['motion'] = [0, 0]
-                # Other commands
-                elif event.key == pygame.K_i:
-                    self.command['save_image'] = True
-                elif event.key == pygame.K_p:
-                    self.command['inference'] = True
-                elif event.key == pygame.K_ESCAPE:
-                    self.quit_program = True
-            elif event.type == pygame.QUIT:
-                self.quit_program = True
+    # def locate_update(self):
 
-        if self.quit_program:
-            self.command['motion'] = [0, 0]
-            self.control_motors()
-            pygame.quit()
-            sys.exit()
+    #     self.take_pic()
+    #     meas = self.control()
+
+    #     self.update_slam(meas)
+
+
+    # def find_my_location(self):
+    #     """
+    #     Rotates the robot to detect at least two known landmarks for localization.
+    #     """
+    #     print('finding location')
+    #     found_enough_landmarks = False
+    #     rotation_direction = random.choice([-1, 1])  # Randomly choose rotation direction
+    #     max_search_time = 45  # Maximum time to search for landmarks in seconds
+    #     search_start_time = time.time()
+
+    #     while not found_enough_landmarks:
+    #         # Update robot's sensors and state
+    #         #self.update_sensors()
+    #         self.locate_update()
+
+    #         # Detect markers in the current image
+    #         detected_landmarks, self.aruco_image = self.aruco_detector.detect_marker_positions(self.current_image)
+
+    #         # Count the number of known landmarks detected
+    #         known_landmarks_detected = 0
+    #         for landmark in detected_landmarks:
+    #             if landmark.tag in self.ekf.taglist:
+    #                 known_landmarks_detected += 1
+    #                 if known_landmarks_detected >= 2:
+    #                     found_enough_landmarks = True
+    #                     break  # Exit loop once two landmarks are found
+
+    #         # Brief pause to prevent rapid looping
+    #         time.sleep(0.2)
+
+    #         if found_enough_landmarks:
+    #             # Stop the robot
+    #             self.pibot.set_velocity([0, 0])
+    #             # Update sensors once more for accurate localization
+    #             self.locate_update()
+    #         else:
+    #             # Rotate the robot to search for landmarks
+    #             self.pibot.set_velocity([0, rotation_direction], time=0.2)
+
+    #         # Check if maximum search time has been exceeded
+    #         elapsed_time = time.time() - search_start_time
+    #         if elapsed_time >= max_search_time:
+    #             print("Localization attempt timed out.")
+    #             break
+
+
+
+
 
 if __name__ == "__main__":
-    # Argument parsing
+    import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ip", type=str, default='192.168.50.1')
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--ip", metavar='', type=str, default='192.168.50.1')
+    parser.add_argument("--port", metavar='', type=int, default=8080)
     parser.add_argument("--calib_dir", type=str, default="calibration/param/")
     parser.add_argument("--save_data", action='store_true')
     parser.add_argument("--play_data", action='store_true')
-    parser.add_argument("--slam", type=str, default='slam.txt')
-    parser.add_argument("--targets", type=str, default='targets.txt')
-    parser.add_argument("--search_list", type=str, default="shopping_list.txt")
-    parser.add_argument("--yolo_model", type=str, default='YOLO/model/yolov8_model.pt')
-    args = parser.parse_args()
+    parser.add_argument("--slam", type=str, default='slam.txt') # SLAM map from M3 
+    parser.add_argument("--targets", type=str, default='targets.txt') # target map from M3
+    parser.add_argument("--search_list", type = str, default="shopping_list.txt")
+    # parser.add_argument("--yolo_model", default='YOLO/model/weights/200_Epochs.pt')
+    #parser.add_argument("--yolo_model", default='YOLO/model/weights/18_oct.pt')
+    parser.add_argument("--yolo_model", default='YOLO/model/yolov8_model.pt')
+    args, _ = parser.parse_known_args()
 
-    # Initialize pygame and fonts
     pygame.font.init()
     TITLE_FONT = pygame.font.Font('pics/8-BitMadness.ttf', 35)
     TEXT_FONT = pygame.font.Font('pics/8-BitMadness.ttf', 40)
 
-    # Setup display
-    screen_width, screen_height = 980, 780
-    canvas = pygame.display.set_mode((screen_width, screen_height))
-    pygame.display.set_caption('Robot Operation GUI')
+    width, height = 700+280, 660+100+20 # modified GUI due to larger slam map
+    canvas = pygame.display.set_mode((width, height))
+    pygame.display.set_caption('ECE4078 2023 Lab')
     pygame.display.set_icon(pygame.image.load('pics/8bit/pibot5.png'))
     canvas.fill((0, 0, 0))
-    splash_screen = pygame.image.load('pics/loading.png')
+    splash = pygame.image.load('pics/loading.png')
+    pibot_animate = [pygame.image.load('pics/8bit/pibot1.png'),
+                     pygame.image.load('pics/8bit/pibot2.png'),
+                     pygame.image.load('pics/8bit/pibot3.png'),
+                     pygame.image.load('pics/8bit/pibot4.png'),
+                     pygame.image.load('pics/8bit/pibot5.png')]
     pygame.display.update()
 
-    # Splash screen
-    start_program = False
-    while not start_program:
+    start = False
+
+    counter = 40
+    while not start:
         for event in pygame.event.get():
             if event.type == pygame.KEYDOWN:
-                start_program = True
-        canvas.blit(splash_screen, (0, 0))
-        pygame.display.update()
+                start = True
+        canvas.blit(splash, (0, 0))
+        x_ = min(counter, 600)
+        if x_ < 600:
+            canvas.blit(pibot_animate[counter % 10 // 2], (x_, 565))
+            pygame.display.update()
+            counter += 2
 
-    # Initialize robot operation
-    robot_operation = RobotOperation(args)
-    robot_operation.plan_navigation()
-    input("Press Enter to start the robot operation...")
-
-    # Main loop
-    while not robot_operation.navigation_complete:
-        robot_operation.handle_keyboard_input()
-        if not robot_operation.quit_program:
-            robot_operation.perform_actions()
+    operate = Operate(args)
+    operate.navigate_to_fruits()
+    operate.queued_actions.append([0,0,3])
+    # operate.find_my_location()
+    operate.plot_path_and_obstacles(operate.checkpoints, operate.fruit_true_pos, operate.aruco_true_pos)
+    
+    with open("planned_route"+".txt",'w') as label:
+        label.write(f"{operate.checkpoints}")
+    
+    #input("Waiting to start")
+    while start and operate.completed is False:
+        # john = time.time()
+        #operate.update_keyboard()
+        if not operate.quit:
+            operate.play_action()
         else:
-            robot_operation.command['motion'] = [0, 0]
-
-        robot_operation.capture_image()
-        drive_measurement = robot_operation.control_motors()
-        robot_operation.update_slam(drive_measurement)
-        robot_operation.save_current_image()
-        robot_operation.run_object_detection()
-
-        # Render GUI
-        robot_operation.render_gui(canvas)
+            operate.command['motion'] = [0,0]
+        operate.take_pic()
+        drive_meas = operate.control()
+        operate.update_slam(drive_meas)
+        # operate.record_data()
+        operate.save_image()
+        operate.detect_target()
+        # visualise
+        operate.draw(canvas)
         pygame.display.update()
+        # print(time.time()-john)
