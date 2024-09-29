@@ -307,6 +307,14 @@ class Operate:
             self.ekf.predict(drive_meas)
             self.ekf.add_landmarks(lms)
             self.ekf.update(lms)
+            self.ekf.add_landmarks(lms)
+            P_robot = self.P[0:2,0:2]
+            P_robot, _ = self.make_ellipse(P_robot)
+            P_robot = np.linalg.norm(P_robot)
+            if (P_robot > 0.4) and (len(lms)>2): 
+                # update slam 
+                self.ekf.update(lms)
+
 
     # using computer vision to detect targets
     def detect_target(self):

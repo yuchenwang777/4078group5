@@ -66,19 +66,27 @@ class Robot:
 
     def derivative_drive(self, drive_meas):
         # Compute the differential of drive w.r.t. the robot state
-        DFx = np.eye(3)
+        DFx = np.zeros((3,3))
+        DFx[0,0] = 1
+        DFx[1,1] = 1
+        DFx[2,2] = 1
 
         lin_vel, ang_vel = self.convert_wheel_speeds(drive_meas.left_speed, drive_meas.right_speed)
 
         dt = drive_meas.dt
         th = self.state[2]
         
-        if ang_vel == 0:
-            DFx[0,2] = -lin_vel * np.sin(th) * dt
-            DFx[1, 2] = lin_vel * np.cos(th) * dt
-        else:
-            DFx[0,2] = (lin_vel / ang_vel) * (np.cos(th + dt * ang_vel) - np.cos(th))
-            DFx[1,2] = (lin_vel / ang_vel) * (np.sin(th + dt * ang_vel) - np.sin(th))
+        # TODO: add your codes here to compute DFx using lin_vel, ang_vel, dt, and th
+        if ang_vel ==0: 
+            DFx[0,2]= -np.sin(th.item()) * lin_vel * dt
+            DFx[1,2]=  np.cos(th.item()) * lin_vel * dt
+        else: 
+            R= lin_vel/ang_vel
+            next_th = th + ang_vel*dt
+           
+            DFx[0,2]= R* (-np.cos(th.item())+np.cos(next_th.item()))
+            DFx[1,2]= R* (-np.sin(th.item())+np.sin(next_th.item()))
+
         return DFx
 
     def derivative_measure(self, markers, idx_list):
@@ -122,37 +130,24 @@ class Robot:
         dt = drive_meas.dt
         th2 = th + dt*ang_vel
 
-        # You Jin
         # Derivative of x,y,theta w.r.t. lin_vel, ang_vel
-        sin_th = np.sin(th)
-        cos_th = np.cos(th)
-
-        sin_th2 = np.sin(th2)
-        cos_th2 = np.cos(th2)
-
         Jac2 = np.zeros((3,2))
-        if ang_vel != 0 :
-            Jac2[0,0] = (sin_th2-sin_th)/ang_vel
-            Jac2[0,1] = -lin_vel*(sin_th2-sin_th)/(ang_vel**2) + lin_vel*(cos_th2*dt)/ang_vel
-
-            Jac2[1,0] = (cos_th-cos_th2)/ang_vel
-            Jac2[1,1] = -lin_vel*(cos_th-cos_th2)/(ang_vel**2) + lin_vel*(sin_th2*dt)/ang_vel
-
-            Jac2[2,0] = 0
-            Jac2[2,1] = dt
-        else:
-            Jac2[0,0] = cos_th*dt
-            Jac2[0,1] = 0
-
-            Jac2[1,0] = sin_th*dt
-            Jac2[1,1] = 0
-
-            Jac2[2,0] = 0
-            Jac2[2,1] = 0
-
-       
+        
         # TODO: add your codes here to compute Jac2 using lin_vel, ang_vel, dt, th, and th2
 
+        if ang_vel == 0: 
+            Jac2[0,0] = np.cos(th.item())*dt
+            Jac2[1,0] = np.sin(th.item())*dt
+        else: 
+            Jac2[0,0] = (1/ang_vel) * (-np.sin(th.item())+np.sin(th2.item())) #check sign 
+            Jac2[0,1] = (lin_vel/ang_vel**2)*(np.sin(th.item())-np.sin(th2.item()))+((lin_vel/ang_vel)*np.cos(th2.item())*dt)
+
+            Jac2[1,0] = (1/ang_vel) * (np.cos(th.item())-np.cos(th2.item()))
+            Jac2[1,1] = (lin_vel/ang_vel**2)*(-np.cos(th.item())+np.cos(th2.item()))+((lin_vel/ang_vel)*np.sin(th2.item())*dt)
+
+            Jac2[2,1] = dt
+            # changes made 
+            
         # Derivative of x,y,theta w.r.t. left_speed, right_speed
         Jac = Jac2 @ Jac1
 
@@ -161,4 +156,3 @@ class Robot:
         cov = Jac @ cov @ Jac.T
         
         return cov
-   
