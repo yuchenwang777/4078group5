@@ -298,4 +298,8 @@ if __name__ == '__main__':
         print(f'Average object pose estimation error after alignment: {np.mean(err_lst)}')
         print(f'Individual target scores: {target_scores}')
         print('======')
-        print(f'Target Estimation Error Score (0 to 80): = {np.sum(target_scores)}')
+        slam_score = ((0.12 - slam_rmse_aligned)/(0.12 - 0.02)) * 24 + len(taglist) * 0.6
+        target_est_score = np.sum(target_scores) * 0.375
+        print(f'SLAM Score (0 to 30): = {np.round(slam_score, 3)}')
+        print(f'Target Score (0 to 30): = {np.round(target_est_score, 3)}')
+        print(f'Total Score (0 to 60): = {np.round(slam_score + target_est_score, 3)}')

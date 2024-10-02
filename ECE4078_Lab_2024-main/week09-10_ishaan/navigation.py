@@ -334,12 +334,12 @@ class Operate:
             self.ekf.add_landmarks(lms)
             self.ekf.update(lms)
             self.ekf.add_landmarks(lms)
-            P_robot = self.P[0:2,0:2]
-            P_robot, _ = self.make_ellipse(P_robot)
-            P_robot = np.linalg.norm(P_robot)
-            if (P_robot > 0.4) and (len(lms)>2): 
+           # P_robot = self.P[0:2,0:2]
+           # P_robot, _ = self.make_ellipse(P_robot)
+           # P_robot = np.linalg.norm(P_robot)
+           # if (P_robot > 0.4) and (len(lms)>2): 
                 # update slam 
-                self.ekf.update(lms)
+           #     self.ekf.update(lms)
 
 
     # using computer vision to detect targets
@@ -770,7 +770,7 @@ if __name__ == "__main__":
     operate.navigate_to_fruits()
     operate.queued_actions.append([0,0,3])
     # operate.find_my_location()
-    operate.plot_path_and_obstacles(operate.checkpoints, operate.fruit_true_pos, operate.aruco_true_pos)
+    #operate.plot_path_and_obstacles(operate.checkpoints, operate.fruit_true_pos, operate.aruco_true_pos)
     
     with open("planned_route"+".txt",'w') as label:
         label.write(f"{operate.checkpoints}")
