@@ -6,8 +6,6 @@ import time
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-#from matplotlib.patches import Circle
 import random
 import math
 import json
@@ -25,7 +23,7 @@ import shutil                       # python package for file operations
 sys.path.insert(0, "{}/slam".format(os.getcwd()))
 from slam.ekf import EKF
 from slam.robot import Robot
-import slam.aruco_detector as aruco # used our own aruco_detector which excludes markers > 10, and attempts to get the center of the cube.
+import slam.aruco_detector_center as aruco # used our own aruco_detector which excludes markers > 10, and attempts to get the center of the cube.
 
 sys.path.insert(0, "{}/path_planning".format(os.getcwd()))
 
@@ -117,60 +115,36 @@ class Operate:
         self.checkpoints = []
 
     def plot_path_and_obstacles(self, checkpoints, fruit_true_pos, aruco_true_pos):
-        fig, ax = plt.subplots(figsize=(10, 10))
+        plt.figure(figsize=(10, 10))
 
-    # Plot obstacles with 5 cm radius
-        #size
-        #obstacle_size = (radius_meters * 2) ** 2 * 1000  # Adjust size for better visibility
-    
-    # Plot Aruco markers
+        # Plot obstacles with 10 cm diameter (5 cm radius)
+        obstacle_size = (10 / 2) ** 2  # Size for scatter plot (area)
+        
+        # Plot Aruco markers
         aruco_x = [pos[0] for pos in aruco_true_pos]
         aruco_y = [pos[1] for pos in aruco_true_pos]
-        ax.scatter(aruco_x, aruco_y, s=500, c='red', label='Aruco Marker')
+        plt.scatter(aruco_x, aruco_y, s=obstacle_size, c='red', label='Aruco Marker')
 
-    # Plot fruits
+        # Plot fruits
         fruit_x = [pos[0] for pos in fruit_true_pos]
         fruit_y = [pos[1] for pos in fruit_true_pos]
-        ax.scatter(fruit_x, fruit_y, s=500, c='green', label='Fruit')
+        plt.scatter(fruit_x, fruit_y, s=obstacle_size, c='green', label='Fruit')
 
-        # Add 0.5m radius circle outline around target fruits in the shopping list
-        for idx, fruit_name in enumerate(self.search_list):
-            if fruit_name in self.fruit_list:
-                pos = fruit_true_pos[self.fruit_list.index(fruit_name)]
-                circle = plt.Circle((pos[0], pos[1]), 0.5, color='blue', fill=False, linestyle='--', linewidth=1.5)
-                ax.add_artist(circle)
-                ax.text(pos[0], pos[1], str(idx + 1), color='blue', fontsize=12, ha='center', va='center')
+        # Plot path
+        for checkpoint_set in checkpoints:
+            x_coords = [point[0] for point in checkpoint_set]
+            y_coords = [point[1] for point in checkpoint_set]
+            plt.plot(x_coords, y_coords, 'b-', label='Path' if 'Path' not in plt.gca().get_legend_handles_labels()[1] else "")
 
-    # Plot path sections with different colors
-        colors = cm.rainbow(np.linspace(0, 1, len(checkpoints)))
-        for i, checkpoint_set in enumerate(checkpoints):
-            if i == 0:
-                # Add (0,0) at the start of the first route
-                x_coords = [0] + [point[0] for point in checkpoint_set]
-                y_coords = [0] + [point[1] for point in checkpoint_set]
-            else:
-                # Add the last checkpoint of the previous route as the start of the next route
-                x_coords = [checkpoints[i-1][-1][0]] + [point[0] for point in checkpoint_set]
-                y_coords = [checkpoints[i-1][-1][1]] + [point[1] for point in checkpoint_set]
-            ax.plot(x_coords, y_coords, color=colors[i], label=f'Path Section {i+1}')
+        # Invert axes
+        plt.gca().invert_xaxis()
+        plt.gca().invert_yaxis()
 
-
-        ax.set_xlim(-1.5,1.5)
-        ax.set_ylim(-1.5,1.5)
-    # Invert axes
-        ax.invert_xaxis()
-        ax.invert_yaxis()
-
-        ax.set_xlabel('X Coordinate (meters)')
-        ax.set_ylabel('Y Coordinate (meters)')
-        ax.set_title('Path and Obstacles')
-
-    # Create legend if it doesn't exist
-        handles, labels = ax.get_legend_handles_labels()
-        if handles:
-            ax.legend()
-    
-        ax.grid(True)
+        plt.xlabel('X Coordinate (meters)')
+        plt.ylabel('Y Coordinate (meters)')
+        plt.title('Path and Obstacles')
+        plt.legend()
+        plt.grid(True)
         plt.show()
 
     def get_next_instruction(self):
@@ -333,14 +307,6 @@ class Operate:
             self.ekf.predict(drive_meas)
             self.ekf.add_landmarks(lms)
             self.ekf.update(lms)
-            self.ekf.add_landmarks(lms)
-           # P_robot = self.P[0:2,0:2]
-           # P_robot, _ = self.make_ellipse(P_robot)
-           # P_robot = np.linalg.norm(P_robot)
-           # if (P_robot > 0.4) and (len(lms)>2): 
-                # update slam 
-           #     self.ekf.update(lms)
-
 
     # using computer vision to detect targets
     def detect_target(self):
@@ -543,32 +509,13 @@ class Operate:
                         if route is not None:
                             routes.append(route[1:-1])
                     # print(len(routes))
-                    path_type = input("0 for shortest, 1 for safest:\n")
-                    if path_type == '0':
-                        shortestRoute = min(routes,key=length_of_path)
-                        self.checkpoints.append(shortestRoute)
-                        print("short path used")
-                    else:
-                        safestRoute = max(routes, key=lambda route: self.average_distance_from_obstacles(route, obstacleList))
-                        self.checkpoints.append(safestRoute)
-                        print('safe path used')
-
-                    #shortestRoute = min(routes,key=length_of_path) #finds shortest route
-                    #safestRoute = max(routes, key=lambda route: self.average_distance_from_obstacles(route, obstacleList))
+                    shortestRoute = min(routes,key=length_of_path)
                     # print(shortestRoute)
-                    #self.checkpoints.append(shortestRoute)
-                    #self.checkpoints.append(safestRoute)
+                    self.checkpoints.append(shortestRoute)
                     # print(shortestRoute)
                     print(f"Found path to {self.search_list[ind]} with safety radius {radius}")
                     bounds[self.search_list[ind]] = radius
                     break
-
-    def average_distance_from_obstacles(self,route, obstacle_list):
-        distances = []
-        for point in route:
-            min_distance = min(np.linalg.norm(np.array(point) - np.array(obstacle.center)) for obstacle in obstacle_list)
-            distances.append(min_distance)
-        return np.mean(distances)
 
 
     def navigate_to_next(self):
@@ -770,7 +717,7 @@ if __name__ == "__main__":
     operate.navigate_to_fruits()
     operate.queued_actions.append([0,0,3])
     # operate.find_my_location()
-    #operate.plot_path_and_obstacles(operate.checkpoints, operate.fruit_true_pos, operate.aruco_true_pos)
+    operate.plot_path_and_obstacles(operate.checkpoints, operate.fruit_true_pos, operate.aruco_true_pos)
     
     with open("planned_route"+".txt",'w') as label:
         label.write(f"{operate.checkpoints}")

@@ -149,10 +149,25 @@ class EKF:
         return F
 
 
+    # def predict_covariance(self, raw_drive_meas):
+    #     n = self.number_landmarks()*2 + 3
+    #     Q = np.zeros((n,n))
+    #     Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) + 0.0001*np.eye(3)
+    #     return Q
     def predict_covariance(self, raw_drive_meas):
         n = self.number_landmarks()*2 + 3
         Q = np.zeros((n,n))
-        Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) + 0.0001*np.eye(3)
+       
+       ##LOCATION OF ITEM CHANGE 2: 
+       # Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.01*np.eye(3)
+        if not np.all(raw_drive_meas ==0 ):
+            if ((raw_drive_meas.right_speed < 0 and raw_drive_meas.left_speed > 0) or (raw_drive_meas.right_speed > 0 and raw_drive_meas.left_speed < 0)):
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.0001*np.eye(3)
+            else:
+                Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas)+ 0.005*np.eye(3)
+        else:
+            Q[0:3,0:3] = self.robot.covariance_drive(raw_drive_meas) #remove if makes worse
+        #have a go changing introduced noise/ tuning parameter 
         return Q
 
     def add_landmarks(self, measurements):
@@ -229,46 +244,28 @@ class EKF:
         y_im = int(y*m2pixel+h/2.0)
         return (x_im, y_im)
 
-    def draw_slam_state(self, fruit_true_pos=None, fruit_list=None,checkpoints=None,shopping_list = None, res=(600, 600), not_pause=True):
-    
-        fruit_colors = {
-        'pear': (255, 200, 0),
-        'lemon': (200, 200, 150),
-        'lime': (0, 255, 0),
-        'tomato': (255, 0, 0),
-        'capsicum': (50, 50, 251),
-        'potato': (143,95, 0),
-        'pumpkin': (255, 117, 24),
-        'garlic': (211, 211, 211)
-    }
-        route_color = (255,255,255)
-        route_thickness = 8
-        # Draw landmarks
-        m2pixel = 200
+    def draw_slam_state(self, fruit_true_pos=None, fruit_list=None,checkpoints=None,shopping_list = None, res=(600, 600), not_pause=True):        # Draw landmarks
+        m2pixel = 100
         if not_pause:
             bg_rgb = np.array([213, 213, 213]).reshape(1, 1, 3)
         else:
             bg_rgb = np.array([120, 120, 120]).reshape(1, 1, 3)
-        canvas = np.ones((res[1], res[0], 3)) * bg_rgb.astype(np.uint8)
-
+        canvas = np.ones((res[1], res[0], 3))*bg_rgb.astype(np.uint8)
+        # in meters, 
         lms_xy = self.markers[:2, :]
         robot_xy = self.robot.state[:2, 0].reshape((2, 1))
-
+        lms_xy = lms_xy - robot_xy
+        robot_xy = robot_xy*0
         robot_theta = self.robot.state[2,0]
-        robot_xy = self.robot.state[:2, 0].reshape((2, 1))
-        # robot_xy = robot_xy * 0
-        robot_theta = self.robot.state[2,0]
-
-        # Plot robot
-        start_point_uv = self.to_im_coor(robot_xy, res, m2pixel)
-        p_robot = self.P[0:2, 0:2]
-        axes_len, angle = self.make_ellipse(p_robot)
-
-        canvas = cv2.ellipse(canvas, start_point_uv,
-                            (int(axes_len[0] * m2pixel), int(axes_len[1] * m2pixel)),
-                            angle, 0, 360, (0, 30, 56), 1)
-
-        # Draw landmarks
+        # plot robot
+        start_point_uv = self.to_im_coor((0, 0), res, m2pixel)
+        
+        p_robot = self.P[0:2,0:2]
+        axes_len,angle = self.make_ellipse(p_robot)
+        canvas = cv2.ellipse(canvas, start_point_uv, 
+                    (int(axes_len[0]*m2pixel), int(axes_len[1]*m2pixel)),
+                    angle, 0, 360, (0, 30, 56), 1)
+        # draw landmards
         if self.number_landmarks() > 0:
             for i in range(len(self.markers[0,:])):
                 xy = (lms_xy[0, i], lms_xy[1, i])
@@ -280,36 +277,10 @@ class EKF:
                     (int(axes_len[0]*m2pixel), int(axes_len[1]*m2pixel)),
                     angle, 0, 360, (244, 69, 96), 1)
 
-        # Draw fruits 
-        if fruit_true_pos is not None and fruit_list is not None:
-            for fruit_pos, fruit_name in zip(fruit_true_pos,fruit_list):
-                if fruit_name in fruit_colors:
-                    fruit_color = fruit_colors[fruit_name]
-
-                fruit_xy = (fruit_pos[0], fruit_pos[1])
-                fruit_coor = self.to_im_coor(fruit_xy, res, m2pixel)
-                cv2.circle(canvas, fruit_coor, 5, fruit_color, -1) 
-
-                star_size = 5  
-                line_length = 10 
-                cv2.line(canvas, (fruit_coor[0] - star_size, fruit_coor[1]), (fruit_coor[0] + star_size, fruit_coor[1]), fruit_color, 2)
-                cv2.line(canvas, (fruit_coor[0], fruit_coor[1] - star_size), (fruit_coor[0], fruit_coor[1] + star_size), fruit_color, 2)
-                cv2.line(canvas, (fruit_coor[0] - line_length, fruit_coor[1] - line_length), (fruit_coor[0] + line_length, fruit_coor[1] + line_length), fruit_color, 2)
-                cv2.line(canvas, (fruit_coor[0] - line_length, fruit_coor[1] + line_length), (fruit_coor[0] + line_length, fruit_coor[1] - line_length), fruit_color, 2)
-
-        # Draw route
-        if checkpoints is not None and checkpoints:
-            for route in checkpoints: # Set of coords
-                for i,point in enumerate(route[:-1]):
-                    cv2.arrowedLine(canvas,self.to_im_coor(point, res, m2pixel),self.to_im_coor(route[i+1], res, m2pixel),color=route_color,thickness=route_thickness)
-            for j in range(len(checkpoints)-1):
-                cv2.arrowedLine(canvas,self.to_im_coor(checkpoints[j][-1], res, m2pixel),self.to_im_coor(checkpoints[j+1][0], res, m2pixel),color=route_color,thickness=route_thickness)
-
         surface = pygame.surfarray.make_surface(np.rot90(canvas))
         surface = pygame.transform.flip(surface, True, False)
-        surface.blit(self.rot_center(self.pibot_pic, robot_theta * 57.3),
-                    (start_point_uv[0] - 15, start_point_uv[1] - 15))
-
+        surface.blit(self.rot_center(self.pibot_pic, robot_theta*57.3),
+                    (start_point_uv[0]-15, start_point_uv[1]-15))
         if self.number_landmarks() > 0:
             for i in range(len(self.markers[0,:])):
                 xy = (lms_xy[0, i], lms_xy[1, i])

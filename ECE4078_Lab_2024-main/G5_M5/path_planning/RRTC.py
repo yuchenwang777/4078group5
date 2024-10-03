@@ -100,10 +100,6 @@ class RRTC:
         self.start_node_list = [self.start]
         self.end_node_list = [self.end]
         while len(self.start_node_list) + len(self.end_node_list) <= self.max_nodes:
-            # print(len(self.start_node_list) + len(self.end_node_list))
-        #TODO: Complete the planning method ----------------------------------------------------------------            
-            # 1. Sample and add a node in the start tree
-            # Hint: You should use self.grow_tree above to add a node in the start tree here
             tries = 0
             while True:
                 tries += 1
@@ -121,18 +117,6 @@ class RRTC:
             self.start_node_list = self.end_node_list
             self.start_node_list = temp
    
-            # 2. Check whether trees can be connected
-            # Hint: You should use self.check_trees_distance above to check
-            
-            # 3. Add the node that connects the trees and generate the path
-                # Note: It is important that you return path found as:
-                # return self.generate_final_course(len(self.start_node_list) - 1, len(self.end_node_list) - 1)
-            
-            # 4. Sample and add a node in the end tree
-            
-            # 5. Swap start and end trees
-            
-        #ENDTODO ----------------------------------------------------------------------------------------------
             
         return None  # cannot find path
     

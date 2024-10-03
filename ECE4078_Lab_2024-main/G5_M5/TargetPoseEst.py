@@ -95,8 +95,9 @@ def merge_estimations(target_pose_dict):
     #########
     target_est = {}
     distance_threshold = 0.3
+    fruits = ['pear', 'lemon', 'lime', 'tomato', 'capsicum', 'pumpkin', 'garlic', 'potato']
      # Filter out poses outside the valid area
-    valid_pose_dict = {key: pose for key, pose in target_pose_dict.items() if -1.5 < pose['x'] < 1.5 and -1.5 < pose['y'] < 1.5}
+    valid_pose_dict = {key: pose for key, pose in target_pose_dict.items() if -1.55 < pose['x'] < 1.55 and -1.55 < pose['y'] < 1.55}
 
 
     for key, pose in valid_pose_dict.items():
@@ -132,7 +133,39 @@ def merge_estimations(target_pose_dict):
             centroid = np.mean(cluster_poses, axis=0)
             final_target_est[f"{target_type}_{cluster_id}"] = {'x': centroid[0], 'y': centroid[1]}
 
-    return final_target_est
+    #finding missing fruits        
+    missing_objects = [obj for obj in fruits if obj not in final_target_est]
+
+    return final_target_est, missing_objects
+
+def reprocess_missing_objects(missing_objects, target_pose_dict, distance_threshold=0.3):
+    """
+    Reprocess and merge estimations for missing objects.
+    """
+    additional_target_est = {}
+
+    for missing_object in missing_objects:
+        # Extract poses for the missing object
+        
+        missing_object_poses = {key: pose for key, pose in target_pose_dict.items() if key.startswith(missing_object)}
+
+        if not missing_object_poses:
+            continue
+
+        # Convert poses to array for clustering
+        poses_array = np.array([[pose['x'], pose['y']] for pose in missing_object_poses.values()])
+
+        # Use DBSCAN to cluster poses based on distance
+        clustering = DBSCAN(eps=distance_threshold, min_samples=1).fit(poses_array)
+        labels = clustering.labels_
+
+        # Merge poses within each cluster
+        for cluster_id in set(labels):
+            cluster_poses = poses_array[labels == cluster_id]
+            centroid = np.mean(cluster_poses, axis=0)
+            additional_target_est[f"{missing_object}_{cluster_id}"] = {'x': centroid[0], 'y': centroid[1]}
+
+    return additional_target_est
    
 # main loop
 if __name__ == "__main__":
@@ -172,8 +205,13 @@ if __name__ == "__main__":
 
     # merge the estimations of the targets so that there are at most 3 estimations of each target type
     target_est = {}
-    target_est = merge_estimations(target_pose_dict)
+    target_est, missing_objects = merge_estimations(target_pose_dict)
+    if missing_objects:
+        print(f"Missing objects: {missing_objects}")
+        additional_target_est = reprocess_missing_objects(missing_objects, target_pose_dict)
+        target_est.update(additional_target_est)
     print(target_est)
+
     # save target pose estimations
     with open(f'{script_dir}/lab_output/targets.txt', 'w') as fo:
         json.dump(target_est, fo, indent=4)
