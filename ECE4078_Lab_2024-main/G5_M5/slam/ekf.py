@@ -185,6 +185,8 @@ class EKF:
                 continue
             
             lm_bff = lm.position
+            print(f"marker{lm.tag}, at position{lm_bff}")
+            
             lm_inertial = robot_xy + R_theta @ lm_bff
 
             self.taglist.append(int(lm.tag))
@@ -318,4 +320,5 @@ class EKF:
             angle = 0
         return (axes_len[0], axes_len[1]), angle
 
- 
+
+
