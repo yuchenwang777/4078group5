@@ -492,7 +492,7 @@ class Operate:
                     if route is not None:
                         routes.append(route[1:-1])
                 if len(routes) != 0:
-                    for _ in range(140):
+                    for _ in range(50):
                         if len(self.checkpoints) == 0:
                             start = initial_pos
                         else:
@@ -518,81 +518,81 @@ class Operate:
                     break
 
 
-    def navigate_to_next(self):
-        """
-        Calculates sets of points the robot must go to in order to arrive at all fruits on shoppping list
-        self.checkpoints stores list of list of points , self.checkpoints[0] is the list of points to go to first fruit on shopping list
-                                                         self.checkpoints[1] is the list of points to go from first fruit to second fruit 
-                                                        .....
-        """
-        initial_pos = [0,0]
+    # def navigate_to_next(self):
+    #     """
+    #     Calculates sets of points the robot must go to in order to arrive at all fruits on shoppping list
+    #     self.checkpoints stores list of list of points , self.checkpoints[0] is the list of points to go to first fruit on shopping list
+    #                                                      self.checkpoints[1] is the list of points to go from first fruit to second fruit 
+    #                                                     .....
+    #     """
+    #     initial_pos = [0,0]
 
-        # Define Obstacles from aruco xy & fruits xy
-        fruit_true_pos = self.fruit_true_pos.tolist()
-        aruco_true_pos = self.aruco_true_pos.tolist()
+    #     # Define Obstacles from aruco xy & fruits xy
+    #     fruit_true_pos = self.fruit_true_pos.tolist()
+    #     aruco_true_pos = self.aruco_true_pos.tolist()
 
-        FullObstacleCoorList = []
+    #     FullObstacleCoorList = []
 
-        for aruco_ind in range(len(aruco_true_pos)):
-            FullObstacleCoorList.append(aruco_true_pos[aruco_ind])
+    #     for aruco_ind in range(len(aruco_true_pos)):
+    #         FullObstacleCoorList.append(aruco_true_pos[aruco_ind])
                 
-        for fruit_xy in fruit_true_pos:
-            FullObstacleCoorList.append(fruit_xy)
-        # Get coordinates of fruits on shopping list    
+    #     for fruit_xy in fruit_true_pos:
+    #         FullObstacleCoorList.append(fruit_xy)
+    #     # Get coordinates of fruits on shopping list    
 
-        safe_radiuses = [0.35,0.3,0.25,0.2,0.15,0.1] # 
+    #     safe_radiuses = [0.35,0.3,0.25,0.2,0.15,0.1] # 
 
-        waypoint = fruit_true_pos[self.fruit_list[0]]
-        # Iterate through shopping list to plan route between each waypoint
-        print("navigating to",waypoint)
+    #     waypoint = fruit_true_pos[self.fruit_list[0]]
+    #     # Iterate through shopping list to plan route between each waypoint
+    #     print("navigating to",waypoint)
 
-        FullObstacleCoorList.remove(waypoint)
-        for radius in safe_radiuses:                
-            obstacleList = create_obstacle_list(FullObstacleCoorList,radius)
-            # print(len(obstacleList))
-            routes = []
-            print(f"{self.search_list[0]} radius {radius}")
+    #     FullObstacleCoorList.remove(waypoint)
+    #     for radius in safe_radiuses:                
+    #         obstacleList = create_obstacle_list(FullObstacleCoorList,radius)
+    #         # print(len(obstacleList))
+    #         routes = []
+    #         print(f"{self.search_list[0]} radius {radius}")
             
-            for _ in range(10):
-                # print(f"{search_list[ind]} try {_} radius {radius}")
-                start = self.get_robot_state()[:2]
-                rrtc = RRTC(start=start,
-                    goal=waypoint,
-                    obstacle_list=obstacleList,
-                    width = 2.7, #mm
-                    height= 2.7, 
-                    expand_dis=0.2, 
-                    path_resolution=0.01, 
-                    max_points=1000)#max_dis=0.7,
-                route = rrtc.planning()
-                if route is not None:
-                    routes.append(route[1:-1])
-            if len(routes) != 0:
-                for _ in range(90):
-                    # print(f"{search_list[ind]} try {_} radius {radius}")
-                    if len(self.checkpoints) == 0:
-                        start = initial_pos
-                    else:
-                        start = self.checkpoints[-1][-1]
-                    rrtc = RRTC(start=start,
-                        goal=waypoint,
-                        obstacle_list=obstacleList,
-                        width = 2.7, #mm
-                        height= 2.7, 
-                        expand_dis=0.2, 
-                        path_resolution=0.01, 
-                        max_points=1000)#max_dis=0.7,
-                    route = rrtc.planning()
-                    if route is not None:
-                        routes.append(route[1:-1])
-                # print(len(routes))
-                shortestRoute = min(routes,key=length_of_path)
-                # print(shortestRoute)
-                self.checkpoints.append(shortestRoute)
-                # print(shortestRoute)
-                print(f"Found path to {self.search_list[0]} with safety radius {radius}")
+    #         for _ in range(10):
+    #             # print(f"{search_list[ind]} try {_} radius {radius}")
+    #             start = self.get_robot_state()[:2]
+    #             rrtc = RRTC(start=start,
+    #                 goal=waypoint,
+    #                 obstacle_list=obstacleList,
+    #                 width = 2.7, #mm
+    #                 height= 2.7, 
+    #                 expand_dis=0.2, 
+    #                 path_resolution=0.01, 
+    #                 max_points=1000)#max_dis=0.7,
+    #             route = rrtc.planning()
+    #             if route is not None:
+    #                 routes.append(route[1:-1])
+    #         if len(routes) != 0:
+    #             for _ in range(90):
+    #                 # print(f"{search_list[ind]} try {_} radius {radius}")
+    #                 if len(self.checkpoints) == 0:
+    #                     start = initial_pos
+    #                 else:
+    #                     start = self.checkpoints[-1][-1]
+    #                 rrtc = RRTC(start=start,
+    #                     goal=waypoint,
+    #                     obstacle_list=obstacleList,
+    #                     width = 2.7, #mm
+    #                     height= 2.7, 
+    #                     expand_dis=0.2, 
+    #                     path_resolution=0.01, 
+    #                     max_points=1000)#max_dis=0.7,
+    #                 route = rrtc.planning()
+    #                 if route is not None:
+    #                     routes.append(route[1:-1])
+    #             # print(len(routes))
+    #             shortestRoute = min(routes,key=length_of_path)
+    #             # print(shortestRoute)
+    #             self.checkpoints.append(shortestRoute)
+    #             # print(shortestRoute)
+    #             print(f"Found path to {self.search_list[0]} with safety radius {radius}")
 
-                break
+    #             break
             
 
     @staticmethod

@@ -1,5 +1,5 @@
-pear
 lime
-pumpkin 
+pear
 lemon
-tomato
+capsicum
+potato

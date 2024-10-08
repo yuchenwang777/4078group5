@@ -41,6 +41,11 @@ class aruco_detector:
             rvec = rvecs[i]
             tvec = tvecs[i]
 
+            # Apply corrections to the translation vectors 
+            #change numbers during lab
+            tvec[2] = (tvec[2] + 0.0416824) / 0.986147  # Z correction
+            tvec[0] = (tvec[0] + 0.0259) / 1.0608       # X correction
+
             # Convert rotation vector to rotation matrix
             R, _ = cv2.Rodrigues(rvec)
 
