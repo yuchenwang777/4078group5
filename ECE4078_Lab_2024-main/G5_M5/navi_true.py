@@ -541,8 +541,7 @@ if __name__ == "__main__":
     parser.add_argument("--calib_dir", type=str, default="calibration/param/")
     parser.add_argument("--save_data", action='store_true')
     parser.add_argument("--play_data", action='store_true')
-    parser.add_argument("--slam", type=str, default='slam.txt') # SLAM map from M3 
-    parser.add_argument("--targets", type=str, default='targets.txt') # target map from M3
+    parser.add_argument("--map", type=str, default='map.txt') # change to 'M4_true_map_part.txt' for lv2&3
     parser.add_argument("--search_list", type = str, default="shopping_list.txt")
     # parser.add_argument("--yolo_model", default='YOLO/model/weights/200_Epochs.pt')
     #parser.add_argument("--yolo_model", default='YOLO/model/weights/18_oct.pt')

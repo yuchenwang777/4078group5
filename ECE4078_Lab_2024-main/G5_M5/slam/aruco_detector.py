@@ -34,34 +34,35 @@ class aruco_detector:
             # Some markers appear multiple times but should only be handled once.
             if idi in seen_ids or idi > 10:
                 continue
-            else:
+            else:   
                 seen_ids.append(idi)
-            cube = self.marker_length
-            lm_tvecs = tvecs[ids==idi].T
-            lm_rvecs = rvecs[ids==idi].T
-            for i in range(lm_tvecs.shape[1]):
-                rmat,_ = cv2.Rodrigues(lm_rvecs[:,i])
-                tvec = lm_tvecs[:,i]
 
-                tvec[2] = (tvec[2] + 0.0416824)/0.986147# Z y = 0.986147 x - 0.0416824
-                tvec[0] = (tvec[0] + 0.0259)/1.0608#X = 1.0608x + 0.0259
-                
-                # shifting the point to the center by 3.5 cm 
-                tvec = tvec + rmat[:, 2] * (0.04)
+             # Get the rotation and translation vectors
+            rvec = rvecs[i]
+            tvec = tvecs[i]
 
-                lm_tvecs_col = tvec - cube / 2  * rmat[:,2]
-                lm_tvecs[:,i] = lm_tvecs_col
+            # Apply corrections to the translation vectors 
+            #change numbers during lab
+            tvec[0][2] = (tvec[0][2] + 0.0912) / 1.021  # Z correction
+            tvec[0][0] = (tvec[0][0] + 0.0038) / 1.0321       # X correction
+            #tvec[0][0] = (tvec[0][0] + 0.0098) / 0.9754
 
-            lm_bff2d = np.block([[lm_tvecs[2,:]],[-lm_tvecs[0,:]]])
-            lm_bff2d = np.mean(lm_bff2d, axis=1).reshape(-1,1)
+            # Convert rotation vector to rotation matrix
+            R, _ = cv2.Rodrigues(rvec)
+
+            # Calculate the offset from the marker to the cube's center
+            offset = np.array([0, 0, self.marker_length / 2]).reshape((3, 1))
+
+            # Transform the marker position to the cube's center
+            cube_center = tvec.T + R @ offset
+
+            # Convert to 2D coordinates (assuming the robot's pose is aligned with the principal axis)
+            lm_bff2d = np.block([[cube_center[2, 0]], [-cube_center[0, 0]]]).reshape(-1, 1)
             
-
-            # Linearly scale covariance with distance
-            dist = np.linalg.norm(lm_bff2d)
-            if dist > 3*1.42:
-                lm_cov = 99999999999
-            lm_cov = 0.2*np.eye(2)*dist
-            lm_measurement = measure.Marker(lm_bff2d, idi, lm_cov)  
+            lm_measurement = measure.Marker(lm_bff2d, idi)
+            if len(seen_ids) == 1:
+                lm_measurement.position[0][0] = lm_measurement.position[0][0] + 0.035
+                #print(lm_measurement.position[0][0])
             measurements.append(lm_measurement)
         
         # Draw markers on image copy

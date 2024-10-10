@@ -208,8 +208,8 @@ if __name__ == "__main__":
     target_est, missing_objects = merge_estimations(target_pose_dict)
     if missing_objects:
         print(f"Missing objects: {missing_objects}")
-        additional_target_est = reprocess_missing_objects(missing_objects, target_pose_dict)
-        target_est.update(additional_target_est)
+        #additional_target_est = reprocess_missing_objects(missing_objects, target_pose_dict)
+        #target_est.update(additional_target_est)
     print(target_est)
 
     # save target pose estimations
