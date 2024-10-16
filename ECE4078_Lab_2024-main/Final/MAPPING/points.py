@@ -1,7 +1,7 @@
 import json
 import os
 
-def extract_coordinates(input_filepath, output_filepath):
+def extract_coordinates(input_filepath, output_filepath, map_full_filepath):
     """
     Extracts the x and y coordinates of markers from a JSON-like string in a file and 
     writes them to a text file in a specific format.
@@ -9,6 +9,7 @@ def extract_coordinates(input_filepath, output_filepath):
     Parameters:
         input_filepath (str): The path to the input file containing the JSON-like string.
         output_filepath (str): The path to the output file to write the coordinates to.
+        map_full_filepath (str): The path to the additional output file to write the coordinates to.
     """
     try:
         # Read the JSON-like string from the input file
@@ -30,11 +31,14 @@ def extract_coordinates(input_filepath, output_filepath):
             marker_name = f"aruco{tag}_0"
             markers_coordinates[marker_name] = {"x": map_coordinates[0][i], "y": map_coordinates[1][i]}
 
-        # Convert the markers_coordinates dictionary into a JSON string and save it to a new text file
+        # Convert the markers_coordinates dictionary into a JSON string and save it to the output files
         with open(output_filepath, "w") as f:
             json.dump(markers_coordinates, f, indent=4)
+        
+        with open(map_full_filepath, "w") as f:
+            json.dump(markers_coordinates, f, indent=4)
                 
-        print(f"Coordinates have been written to {output_filepath}")
+        print(f"Coordinates have been written to {output_filepath} and {map_full_filepath}")
 
     except json.JSONDecodeError:
         print("Error: Input string is not valid JSON.")
@@ -45,13 +49,14 @@ def extract_coordinates(input_filepath, output_filepath):
     except Exception as e:
         print(f"An error occurred: {str(e)}")
 
-def append_fruit_coordinates(targets_filepath, output_filepath):
+def append_fruit_coordinates(targets_filepath, output_filepath, map_full_filepath):
     """
     Appends the fruit coordinates from targets.txt to coordinates.txt.
 
     Parameters:
         targets_filepath (str): The path to the input file containing the fruit coordinates.
         output_filepath (str): The path to the output file to append the coordinates to.
+        map_full_filepath (str): The path to the additional output file to append the coordinates to.
     """
     try:
         # Load the existing marker coordinates
@@ -65,11 +70,14 @@ def append_fruit_coordinates(targets_filepath, output_filepath):
         # Append the fruit coordinates to the marker coordinates
         markers_coordinates.update(fruit_coordinates)
 
-        # Write the updated coordinates back to the output file
+        # Write the updated coordinates back to the output files
         with open(output_filepath, "w") as f:
             json.dump(markers_coordinates, f, indent=4)
+        
+        with open(map_full_filepath, "w") as f:
+            json.dump(markers_coordinates, f, indent=4)
 
-        print(f"Fruit coordinates have been appended to {output_filepath}")
+        print(f"Fruit coordinates have been appended to {output_filepath} and {map_full_filepath}")
 
     except json.JSONDecodeError:
         print("Error: Input string is not valid JSON.")
@@ -82,9 +90,10 @@ def append_fruit_coordinates(targets_filepath, output_filepath):
 input_filepath = os.path.join("lab_output", "slam.txt")
 output_filepath = os.path.join("lab_output", "points.txt")
 targets_filepath = os.path.join("lab_output", "targets.txt")
+map_full_filepath = os.path.join("..", "NAV", "lab_output", "map_full.txt")
 
-# Extract coordinates and write them to the output file
-extract_coordinates(input_filepath, output_filepath)
+# Extract coordinates and write them to the output files
+extract_coordinates(input_filepath, output_filepath, map_full_filepath)
 
-# Append fruit coordinates to the output file
-append_fruit_coordinates(targets_filepath, output_filepath)
+# Append fruit coordinates to the output files
+append_fruit_coordinates(targets_filepath, output_filepath, map_full_filepath)

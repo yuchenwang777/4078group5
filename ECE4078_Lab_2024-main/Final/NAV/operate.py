@@ -531,9 +531,9 @@ class Operate:
         self.output_coordinate_click(ekf_view_pos, ekf_view_size)
 
             # Create a semi-transparent surface to overlay
-        overlay_surface = pygame.Surface((self.gui_width, self.gui_height+100))
-        overlay_surface.fill((0, 0, 0))  # Opaque black
-        self.canvas.blit(overlay_surface, (0, 0))
+        overlay_image = pygame.image.load('pingu.jpeg')
+        overlay_image = pygame.transform.scale(overlay_image, (self.gui_width, self.gui_height + 100))
+        self.canvas.blit(overlay_image, (0, 0))
         pygame.display.update()
 
     @staticmethod
