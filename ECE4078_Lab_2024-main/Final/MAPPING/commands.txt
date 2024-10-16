@@ -1,0 +1,4 @@
+cd LiveDemo
+cd G5_M5
+python operate.py --ip 192.168.50.1 --port 8080
+python navigation.py --ip 192.168.50.1 --port 8080

@@ -1,0 +1,10 @@
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_0.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_1.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_2.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_3.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_4.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_5.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_6.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_7.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_8.png"}
+{"pose": [[0.0], [0.0], [0.0]], "imgfname": "lab_output/pred_9.png"}

@@ -1,0 +1,134 @@
+pip install ultralytics==8.0.196
+
+source PenguinPi/bin/activate - MAC ACTIVATE VENV
+
+########################################################################
+########################################################################
+###
+###     CALIBRATION
+###
+########################################################################
+########################################################################
+
+python wheel_calibration.py --ip 192.168.50.1 --port 8080
+python calib_pic.py --ip 192.168.50.1 --port 8080
+python camera_calibration.py
+
+
+########################################################################
+########################################################################
+###
+###     OPERATE M2
+###
+########################################################################
+########################################################################
+
+python operate.py --ip 192.168.50.1 --port 8080
+python SLAM_eval.py M2_Thu_4pm.txt lab_output/slam1.txt
+python SLAM_eval_info.py M2_Thu_4pm.txt lab_output/slam7.txt
+
+########################################################################
+########################################################################
+###
+###     MAP GENERATION
+###
+########################################################################
+
+D:\python_versions\python_3_10\python.exe -m venv map_generator
+python reference_map_generator.py
+python gt_map_generator.py
+
+
+########################################################################
+########################################################################
+###
+###     TRAINING / DATA CREATION YOLO
+###
+########################################################################
+########################################################################
+
+python train.py --model_id larry --dataset_id total_small --batch_size 100 --epochs 250
+python train.py --model_id larry_large --dataset_id total_large --batch_size 100 --epochs 250
+
+python test.py --model_id king_steven_the_third
+
+python generate_random_images.py --new_dataset_id fake2 --repeats_per_fruit 10
+python examine_labeled_data.py --dataset_id total_small
+python dataset_info.py --dataset_id total_small
+python merge_datasets.py --merge_data_1 raw_combine_with_flip --merge_data_2 fake2 --output_data_id total_small
+python crop_image_to_size.py
+
+python rename_images_in_folder.py
+python data_augment_flip.py --dataset_id raw_combine --num_flipped_images 350
+
+########################################################################
+########################################################################
+###
+###     OPERATE M3
+###
+########################################################################
+########################################################################
+
+# Test images
+python test.py --model_id larry_large
+
+# Operate
+python operate.py --yolo_model larry_large
+
+# Make map
+python TargetPoseEst.py --model_id king_steven_the_third
+
+python mapping_eval.py --true-map idk.txt --slam-est slam1.txt --target-est targets1.txt
+
+########################################################################
+########################################################################
+###
+###     SSH INTO ROBOT
+###
+########################################################################
+########################################################################
+
+ssh -X pi@192.168.50.1
+PenguinPi
+sudo halt & logout
+
+########################################################################
+########################################################################
+###
+###     OPERATE M4
+###
+########################################################################
+########################################################################
+
+# Operate
+
+python operate.py --online True   --map map_partial.txt     --shopping_list shopping_list.txt    --hazard_radius 0.2    --path_res 0.15 --hazard_boarder 2 --path_alg a
+
+python operate.py --online True   --auto_fruit_search True   --map Wk8_Mon_1700_Practice_PARTIAL.txt --shopping_list Wk8_Mon_1700_Shopping_List.txt
+
+python operate.py --online True   ---auto_fruit_search True  --map M4_home_partial.txt     --shopping_list M4_home_shopping_list.txt    --hazard_radius 0.2    --path_res 0.15 --hazard_boarder 1 --path_alg a
+
+# Offline
+
+
+python operate.py --online False  
+
+########################################################################
+########################################################################
+###
+###     input commands
+###
+########################################################################
+########################################################################
+
+TODO!!!
+
+########################################################################
+########################################################################
+###
+###     OPERATE M5
+###
+########################################################################
+########################################################################
+
+python operate.py --ekf_threshhold 0.001 --fruit_wp_threshhold 0.1 --wp_random_update_interval 500 --yolo_delay 0.5
