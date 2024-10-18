@@ -1,5 +1,0 @@
-pear 
-lemon
-capsicum
-garlic
-lime

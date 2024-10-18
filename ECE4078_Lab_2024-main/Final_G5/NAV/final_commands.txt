@@ -1,0 +1,17 @@
+cd LiveDemo
+cd Final
+cd MAPPING
+python operate.py --ip 192.168.50.1 --port 8080
+python points.py
+cd ..
+cd NAV
+
+normal
+python operate.py --ekf_threshhold 0.001 --fruit_wp_threshhold 0.1 --wp_random_update_interval 500 --yolo_delay 0.5
+
+gauss - dont use 
+python operate2.py --ekf_threshhold 0.001 --fruit_wp_threshhold 0.1 --wp_random_update_interval 500 --yolo_delay 0.5
+
+go forward
+python operate3.py --ekf_threshhold 0.001 --fruit_wp_threshhold 0.1 --wp_random_update_interval 500 --yolo_delay 0.5
+

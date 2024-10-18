@@ -1,0 +1,5 @@
+cd LiveDemo
+cd Final
+python operate.py --ip 192.168.50.1 --port 8080
+python points.py
+python operate.py --ekf_threshhold 0.001 --fruit_wp_threshhold 0.1 --wp_random_update_interval 500 --yolo_delay 0.5
